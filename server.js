@@ -130,10 +130,20 @@ function addTicket(jiraTicket) {
     log: "",
     planFile: null,
     planContent: null,
+    proc: null,
     createdAt: Date.now(),
   };
 
-  if (firstSkill !== "augmented-coding") {
+  // If first step is jira-to-plan, check if plan already exists
+  if (firstSkill === "jira-to-plan") {
+    detectPlanFile(tickets[id]);
+    if (tickets[id].planFile) {
+      tickets[id].status = "review-plan";
+      tickets[id].log = `기존 plan 파일 발견: ${tickets[id].planFile}\n내용을 확인하고 진행 여부를 선택하세요.`;
+      return tickets[id];
+    }
+    runStep(id);
+  } else if (firstSkill !== "augmented-coding") {
     runStep(id);
   }
   return tickets[id];
@@ -179,10 +189,11 @@ function runStep(id, options = {}) {
 
   const proc = spawn(
     "claude",
-    ["-p", "--verbose", "--output-format", "stream-json", "--allowedTools", allowedTools],
+    ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "acceptEdits", "--allowedTools", allowedTools],
     { cwd, env, stdio: ["pipe", "pipe", "pipe"] }
   );
 
+  ticket.proc = proc;
   proc.stdin.end(prompt + "\n");
 
   let buf = "";
@@ -230,6 +241,7 @@ function runStep(id, options = {}) {
   });
 
   proc.on("exit", (code) => {
+    ticket.proc = null;
     ticket.log += `\n\n--- 완료 (exit ${code}) ---`;
 
     if (skill === "jira-to-plan") {
@@ -240,6 +252,7 @@ function runStep(id, options = {}) {
   });
 
   proc.on("error", (err) => {
+    ticket.proc = null;
     ticket.log += `\n\n--- 에러: ${err.message} ---`;
     ticket.status = (skill === "augmented-coding") ? "awaiting-action" : "review";
   });
@@ -319,7 +332,9 @@ const server = http.createServer((req, res) => {
 
   // --- Ticket APIs ---
   if (url.pathname === "/api/tickets" && req.method === "GET") {
-    const list = Object.values(tickets).sort((a, b) => b.createdAt - a.createdAt);
+    const list = Object.values(tickets)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map(({ proc, ...rest }) => rest);
     json(res, { pipeline: config.pipeline, tickets: list });
     return;
   }
@@ -335,7 +350,7 @@ const server = http.createServer((req, res) => {
       try {
         const { jiraTicket } = JSON.parse(body);
         const ticket = addTicket(jiraTicket);
-        json(res, ticket, 201);
+        json(res, sanitizeTicket(ticket), 201);
       } catch (err) {
         json(res, { error: err.message }, 500);
       }
@@ -382,7 +397,7 @@ const server = http.createServer((req, res) => {
       }
 
       runStep(t.id, { action, planFile });
-      json(res, t);
+      json(res, sanitizeTicket(t));
     });
     return;
   }
@@ -392,7 +407,7 @@ const server = http.createServer((req, res) => {
   if (nextMatch && req.method === "POST") {
     const t = tickets[nextMatch[1]];
     if (!t) { json(res, { error: "not found" }, 404); return; }
-    if (t.status !== "review" && t.status !== "awaiting-action") {
+    if (t.status !== "review" && t.status !== "awaiting-action" && t.status !== "review-plan") {
       json(res, { error: "다음 단계로 진행할 수 없는 상태입니다." }, 400);
       return;
     }
@@ -400,7 +415,7 @@ const server = http.createServer((req, res) => {
     const next = t.currentStep + 1;
     if (next >= config.pipeline.length) {
       t.status = "done";
-      json(res, t);
+      json(res, sanitizeTicket(t));
       return;
     }
 
@@ -410,19 +425,81 @@ const server = http.createServer((req, res) => {
     if (nextSkill === "augmented-coding") {
       t.status = "awaiting-action";
       t.log = "";
-      json(res, t);
+      json(res, sanitizeTicket(t));
     } else {
       runStep(t.id);
-      json(res, t);
+      json(res, sanitizeTicket(t));
     }
     return;
   }
 
-  // Delete ticket (cleanup worktree)
+  // Stop running ticket
+  const stopMatch = url.pathname.match(/^\/api\/tickets\/(\d+)\/stop$/);
+  if (stopMatch && req.method === "POST") {
+    const t = tickets[stopMatch[1]];
+    if (!t) { json(res, { error: "not found" }, 404); return; }
+    if (t.proc) {
+      t.proc.kill("SIGTERM");
+      t.proc = null;
+      t.log += "\n\n--- 사용자에 의해 중지됨 ---";
+      const skill = config.pipeline[t.currentStep];
+      t.status = (skill === "augmented-coding") ? "awaiting-action" : "review";
+    }
+    json(res, sanitizeTicket(t));
+    return;
+  }
+
+  // Skip plan (use existing plan) — review-plan → next step
+  const skipPlanMatch = url.pathname.match(/^\/api\/tickets\/(\d+)\/skip-plan$/);
+  if (skipPlanMatch && req.method === "POST") {
+    const t = tickets[skipPlanMatch[1]];
+    if (!t) { json(res, { error: "not found" }, 404); return; }
+    if (t.status !== "review-plan") {
+      json(res, { error: "review-plan 상태가 아닙니다." }, 400);
+      return;
+    }
+    // Move to next step (same logic as /next)
+    const next = t.currentStep + 1;
+    if (next >= config.pipeline.length) {
+      t.status = "done";
+      json(res, sanitizeTicket(t));
+      return;
+    }
+    t.currentStep = next;
+    const nextSkill = config.pipeline[next];
+    if (nextSkill === "augmented-coding") {
+      t.status = "awaiting-action";
+      t.log = "";
+    } else {
+      runStep(t.id);
+    }
+    json(res, sanitizeTicket(t));
+    return;
+  }
+
+  // Re-run plan (overwrite existing plan)
+  const rerunPlanMatch = url.pathname.match(/^\/api\/tickets\/(\d+)\/rerun-plan$/);
+  if (rerunPlanMatch && req.method === "POST") {
+    const t = tickets[rerunPlanMatch[1]];
+    if (!t) { json(res, { error: "not found" }, 404); return; }
+    if (t.status !== "review-plan") {
+      json(res, { error: "review-plan 상태가 아닙니다." }, 400);
+      return;
+    }
+    runStep(t.id);
+    json(res, sanitizeTicket(t));
+    return;
+  }
+
+  // Delete ticket (cleanup worktree, kill process if running)
   const deleteMatch = url.pathname.match(/^\/api\/tickets\/(\d+)$/);
   if (deleteMatch && req.method === "DELETE") {
     const t = tickets[deleteMatch[1]];
     if (!t) { json(res, { error: "not found" }, 404); return; }
+    if (t.proc) {
+      t.proc.kill("SIGTERM");
+      t.proc = null;
+    }
     if (t.worktreePath) removeWorktree(t.worktreePath);
     delete tickets[deleteMatch[1]];
     json(res, { ok: true });
@@ -432,6 +509,12 @@ const server = http.createServer((req, res) => {
   res.writeHead(404);
   res.end("Not found");
 });
+
+function sanitizeTicket(t) {
+  if (!t || !t.id) return t;
+  const { proc, ...rest } = t;
+  return rest;
+}
 
 function json(res, data, code = 200) {
   res.writeHead(code, { "Content-Type": "application/json" });

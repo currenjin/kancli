@@ -63,6 +63,7 @@
     .badge-review { background: #fef3c7; color: #d97706; }
     .badge-done { background: #dcfce7; color: #16a34a; }
     .badge-awaiting { background: #f3e8ff; color: #9333ea; }
+    .badge-review-plan { background: #fff7ed; color: #ea580c; }
 
     .progress { display: flex; gap: 4px; margin: 10px 0; }
     .progress-bar { flex: 1; height: 6px; border-radius: 3px; background: #f3f4f6; }
@@ -93,6 +94,14 @@
     .btn-refactor:hover { background: #b45309; }
     .btn-advance { background: white; color: #666; border: 1px solid #ddd; font-size: 12px; }
     .btn-advance:hover { background: #f3f4f6; }
+    .btn-stop { background: #fef2f2; color: #ef4444; border: 1px solid #fca5a5; font-weight: 600; }
+    .btn-stop:hover { background: #fee2e2; }
+    .btn-delete { background: #fef2f2; color: #ef4444; font-size: 11px; }
+    .btn-delete:hover { background: #fee2e2; }
+    .btn-rerun { background: white; color: #666; border: 1px solid #ddd; font-size: 12px; }
+    .btn-rerun:hover { background: #f3f4f6; }
+    .btn-skip { background: #2563eb; color: white; font-weight: 600; }
+    .btn-skip:hover { background: #1d4ed8; }
 
     /* Log Box */
     .log-box { margin-top: 10px; background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.6; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: Menlo, Monaco, monospace; }
@@ -312,6 +321,7 @@
           review: { cls: "badge-review", text: "확인 필요" },
           done: { cls: "badge-done", text: "완료" },
           "awaiting-action": { cls: "badge-awaiting", text: "액션 선택" },
+          "review-plan": { cls: "badge-review-plan", text: "Plan 확인" },
         };
         const badge = badgeMap[t.status] || { cls: "", text: "" };
 
@@ -321,6 +331,7 @@
           else if (i === t.currentStep && t.status === "running") cls = "active";
           else if (i === t.currentStep && t.status === "review") cls = "review";
           else if (i === t.currentStep && t.status === "awaiting-action") cls = "awaiting";
+          else if (i === t.currentStep && t.status === "review-plan") cls = "review";
           return `<div class="progress-bar ${cls}"></div>`;
         }).join("");
 
@@ -336,7 +347,15 @@
           : "";
 
         let actionBtns = "";
-        if (t.status === "awaiting-action" && currentSkill === "augmented-coding") {
+        if (t.status === "running") {
+          actionBtns = `<button class="btn btn-stop" onclick="stopTicket('${t.id}')">중지</button>`;
+        } else if (t.status === "review-plan") {
+          actionBtns = `
+            <div class="action-group">
+              <button class="btn btn-skip" onclick="skipPlan('${t.id}')">기존 Plan 사용 → 다음 단계</button>
+              <button class="btn btn-rerun" onclick="rerunPlan('${t.id}')">Plan 다시 생성</button>
+            </div>`;
+        } else if (t.status === "awaiting-action" && currentSkill === "augmented-coding") {
           actionBtns = `
             <div class="action-group">
               <button class="btn btn-go" onclick="runAction('${t.id}','go')">go</button>
@@ -352,13 +371,14 @@
         }
 
         const logBox = openLogId === t.id ? `<div class="log-box" id="log-${t.id}">loading...</div>` : "";
-        const planBox = openPlanId === t.id && t.planContent ? `<div class="plan-box" id="plan-${t.id}">${renderMarkdown(t.planContent)}</div>` : "";
+        const showPlan = (openPlanId === t.id || t.status === "review-plan") && t.planContent;
+        const planBox = showPlan ? `<div class="plan-box" id="plan-${t.id}">${renderMarkdown(t.planContent)}</div>` : "";
 
         const branchInfo = t.branchName
           ? `<span style="font-size:11px;color:#9333ea;font-family:monospace;margin-left:8px">${t.branchName}</span>`
           : "";
-        const deleteBtn = t.status === "done"
-          ? `<button class="btn" style="background:#fef2f2;color:#ef4444;font-size:11px;margin-left:auto" onclick="deleteTicket('${t.id}')">삭제</button>`
+        const deleteBtn = t.status !== "running"
+          ? `<button class="btn btn-delete" style="margin-left:auto" onclick="deleteTicket('${t.id}')">삭제</button>`
           : "";
 
         return `
@@ -400,9 +420,26 @@
       refresh();
     }
 
+    async function stopTicket(id) {
+      await fetch(`/api/tickets/${id}/stop`, { method: "POST" });
+      refresh();
+    }
+
+    async function skipPlan(id) {
+      await fetch(`/api/tickets/${id}/skip-plan`, { method: "POST" });
+      refresh();
+    }
+
+    async function rerunPlan(id) {
+      await fetch(`/api/tickets/${id}/rerun-plan`, { method: "POST" });
+      refresh();
+    }
+
     async function deleteTicket(id) {
       if (!confirm("이 티켓을 삭제하고 worktree를 정리할까요?")) return;
       await fetch(`/api/tickets/${id}`, { method: "DELETE" });
+      if (openLogId === id) openLogId = null;
+      if (openPlanId === id) openPlanId = null;
       refresh();
     }
 
