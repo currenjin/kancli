@@ -189,7 +189,7 @@ function runStep(id, options = {}) {
 
   const proc = spawn(
     "claude",
-    ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "acceptEdits", "--allowedTools", allowedTools],
+    ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "bypassPermissions"],
     { cwd, env, stdio: ["pipe", "pipe", "pipe"] }
   );
 
