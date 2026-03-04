@@ -63,11 +63,19 @@
   - 회귀 테스트 추가: `test/runtime-actions.test.js`
 
 ## T009 (P0) 영속 저장 안정성 강화
+- 상태: DONE
+- 결과:
+  - `writeJsonAtomic` 도입(tmp write → fsync → rename)으로 atomic 저장 보장
+  - overwrite 시 `.bak` 자동 백업 생성
+  - `loadJsonWithRecovery` 도입: JSON corruption 시 `.corrupt-*` 격리 + `.bak` 복구
+  - `repairDbState` 무결성 체크: invalid ticket/queue 참조 정리, nextId 보정
+  - 관련 테스트 추가: `test/persistence-reliability.test.js`
+
+## T010 (P1) SSE 이벤트 모델 확장
 - 상태: TODO
 - 목표:
-  - atomic write + fsync 기반 저장 안정화
-  - DB corruption recovery + backup/restore
-  - startup integrity check/repair
+  - task lifecycle + step event + redline event 분리 발행
+  - dashboard live-update 고도화(상태/요약/카운터)
 
 ## T010 (P1) SSE 이벤트 모델 확장
 - 상태: TODO

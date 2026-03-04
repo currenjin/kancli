@@ -30,50 +30,99 @@ const running = new Set();
 let nextId = 1;
 const sseClients = new Set();
 
-function loadConfig() {
+function backupFile(file) {
+  if (!fs.existsSync(file)) return null;
+  const backupPath = `${file}.bak`;
+  fs.copyFileSync(file, backupPath);
+  return backupPath;
+}
+
+function writeJsonAtomic(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const serialized = JSON.stringify(data, null, 2);
+  const tempPath = `${file}.tmp-${process.pid}-${Date.now()}`;
+  const fd = fs.openSync(tempPath, "w");
   try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
+    fs.writeSync(fd, serialized, 0, "utf-8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (fs.existsSync(file)) backupFile(file);
+  fs.renameSync(tempPath, file);
+}
+
+function loadJsonWithRecovery(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    const corruptPath = `${file}.corrupt-${Date.now()}`;
+    try { fs.renameSync(file, corruptPath); } catch {}
+    const backupPath = `${file}.bak`;
+    if (fs.existsSync(backupPath)) {
+      try {
+        const recovered = JSON.parse(fs.readFileSync(backupPath, "utf-8"));
+        writeJsonAtomic(file, recovered);
+        return recovered;
+      } catch {}
     }
-  } catch {}
+    return fallback;
+  }
+}
+
+function loadConfig() {
+  const loaded = loadJsonWithRecovery(CONFIG_FILE, { projectPath: "", pipeline: [] });
+  if (loaded && typeof loaded === "object") {
+    config = {
+      projectPath: typeof loaded.projectPath === "string" ? loaded.projectPath : "",
+      pipeline: Array.isArray(loaded.pipeline) ? loaded.pipeline.filter((s) => typeof s === "string" && s.trim()) : [],
+    };
+  }
 }
 
 function saveConfig() {
-  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  writeJsonAtomic(CONFIG_FILE, config);
+}
+
+function repairDbState(parsed) {
+  const safe = parsed && typeof parsed === "object" ? parsed : {};
+  const safeTickets = Array.isArray(safe.tickets) ? safe.tickets.filter((t) => t && typeof t.id === "string") : [];
+  const ticketIds = new Set(safeTickets.map((t) => t.id));
+  const safeQueue = Array.isArray(safe.queue) ? safe.queue.filter((id) => typeof id === "string" && ticketIds.has(id)) : [];
+  const safeNextId = Number.isInteger(safe.nextId) && safe.nextId > 0 ? safe.nextId : 1;
+  return { nextId: safeNextId, queue: safeQueue, tickets: safeTickets };
 }
 
 function loadDb() {
-  try {
-    if (!fs.existsSync(DB_FILE)) return;
-    const parsed = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    if (parsed?.nextId) nextId = parsed.nextId;
-    if (Array.isArray(parsed?.queue)) queue.push(...parsed.queue.filter((id) => !tickets[id]));
-    if (Array.isArray(parsed?.tickets)) {
-      for (const t of parsed.tickets) {
-        tickets[t.id] = { ...t, proc: null };
-        if (tickets[t.id].pendingAction && !tickets[t.id].pendingAction.createdAt) {
-          tickets[t.id].pendingAction = createPendingAction(
-            tickets[t.id].pendingAction.type,
-            tickets[t.id].pendingAction.prompt,
-            tickets[t.id].pendingAction.options,
-            tickets[t.id].pendingAction.metadata
-          );
-        }
-        if (tickets[t.id].status === TASK_STATUS.RUNNING) tickets[t.id].status = TASK_STATUS.BLOCKED;
-      }
+  const parsed = repairDbState(loadJsonWithRecovery(DB_FILE, { nextId: 1, queue: [], tickets: [] }));
+  nextId = parsed.nextId;
+  queue.push(...parsed.queue.filter((id) => !tickets[id]));
+
+  for (const t of parsed.tickets) {
+    tickets[t.id] = { ...t, proc: null };
+    if (tickets[t.id].pendingAction && !tickets[t.id].pendingAction.createdAt) {
+      tickets[t.id].pendingAction = createPendingAction(
+        tickets[t.id].pendingAction.type,
+        tickets[t.id].pendingAction.prompt,
+        tickets[t.id].pendingAction.options,
+        tickets[t.id].pendingAction.metadata
+      );
     }
-  } catch {}
+    if (tickets[t.id].status === TASK_STATUS.RUNNING) tickets[t.id].status = TASK_STATUS.BLOCKED;
+  }
+
+  const maxTicketId = Math.max(0, ...Object.keys(tickets).map((id) => Number(id) || 0));
+  if (nextId <= maxTicketId) nextId = maxTicketId + 1;
 }
 
 function saveDb() {
-  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
   const data = {
     nextId,
     queue,
     tickets: Object.values(tickets).map(({ proc, ...rest }) => rest),
   };
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  writeJsonAtomic(DB_FILE, data);
 }
 
 function scanSkills(projectPath) {
@@ -658,4 +707,7 @@ module.exports = {
   isPendingActionExpired,
   validateActionResolutionPayload,
   expireStalePendingAction,
+  writeJsonAtomic,
+  loadJsonWithRecovery,
+  repairDbState,
 };
