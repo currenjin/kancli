@@ -29,6 +29,16 @@ const queue = [];
 const running = new Set();
 let nextId = 1;
 const sseClients = new Set();
+const metrics = {
+  startedAt: Date.now(),
+  ticketsCreated: 0,
+  stepsStarted: 0,
+  stepsCompleted: 0,
+  stepErrors: 0,
+  redlineHalts: 0,
+  pendingActionsExpired: 0,
+  sseEventsEmitted: 0,
+};
 
 function backupFile(file) {
   if (!fs.existsSync(file)) return null;
@@ -190,6 +200,19 @@ function isPendingActionExpired(pendingAction) {
   return Date.now() > pendingAction.expiresAt;
 }
 
+function createRecoveryPendingAction(reason, prompt) {
+  return createPendingAction(
+    "selection",
+    prompt,
+    [
+      { id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } },
+      { id: "advance", label: "다음 단계로 진행", payload: { advance: true } },
+      { id: "halt", label: "중단 유지", payload: { halt: true } },
+    ],
+    { reason, source: "recovery" }
+  );
+}
+
 function addArtifact(ticket, artifact) {
   if (!artifact) return;
   const normalized = {
@@ -225,6 +248,7 @@ function broadcast(event, payload) {
 }
 
 function emitEvent(event, payload = {}) {
+  metrics.sseEventsEmitted += 1;
   broadcast(event, { timestamp: Date.now(), ...payload });
 }
 
@@ -268,6 +292,7 @@ function applyRedline(ticket, input = {}) {
   if (!result.halted || ticket.status === TASK_STATUS.HALTED) return;
 
   ticket.status = TASK_STATUS.HALTED;
+  metrics.redlineHalts += 1;
   emitEvent("redline_event", { ticketId: ticket.id, reason: result.reason, kind: "halt" });
   ticket.pendingAction = createPendingAction(
     "selection",
@@ -283,14 +308,10 @@ function applyRedline(ticket, input = {}) {
 function expireStalePendingAction(ticket) {
   if (!ticket?.pendingAction || !isPendingActionExpired(ticket.pendingAction)) return false;
   ticket.status = TASK_STATUS.BLOCKED;
-  ticket.pendingAction = createPendingAction(
-    "selection",
-    "이전 액션 요청이 만료되었습니다. 현재 단계를 다시 시도하거나 중단을 유지하세요.",
-    [
-      { id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } },
-      { id: "halt", label: "중단 유지", payload: { halt: true } }
-    ],
-    { reason: "stale_action_expired", source: "runtime_validation" }
+  metrics.pendingActionsExpired += 1;
+  ticket.pendingAction = createRecoveryPendingAction(
+    "stale_action_expired",
+    "이전 액션 요청이 만료되었습니다. 현재 단계를 다시 시도하거나 다음 단계로 진행/중단을 선택하세요."
   );
   return true;
 }
@@ -361,6 +382,7 @@ function startStep(id, options = {}) {
   ticket.pendingAction = null;
   ticket.log = "";
   running.add(id);
+  metrics.stepsStarted += 1;
   emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_started" });
   emitTicket(ticket);
 
@@ -403,6 +425,7 @@ function startStep(id, options = {}) {
     running.delete(id);
     ticket.proc = null;
     emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_completed", exitCode: code });
+    metrics.stepsCompleted += 1;
     processText(ticket, `\n\n--- 완료 (exit ${code}) ---`);
 
     if (ticket.status === TASK_STATUS.HALTED) {
@@ -423,14 +446,10 @@ function startStep(id, options = {}) {
     running.delete(id);
     ticket.proc = null;
     emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_error", error: err.message });
+    metrics.stepErrors += 1;
     processText(ticket, `\n\n--- 에러: ${err.message} ---`);
     ticket.status = TASK_STATUS.BLOCKED;
-    ticket.pendingAction = createPendingAction(
-      "selection",
-      "실행 중 오류가 발생했습니다.",
-      [{ id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } }, { id: "halt", label: "중단", payload: { halt: true } }],
-      { reason: "process_error" }
-    );
+    ticket.pendingAction = createRecoveryPendingAction("process_error", "실행 중 오류가 발생했습니다. 재시도/다음 단계 진행/중단 중 선택하세요.");
     emitTicket(ticket);
     schedule();
   });
@@ -476,6 +495,7 @@ function addTicket(jiraTicket) {
   };
   tickets[id] = t;
   queue.push(id);
+  metrics.ticketsCreated += 1;
   emitTicket(t);
   schedule();
   return t;
@@ -600,6 +620,22 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === "/health" && req.method === "GET") {
+    const statusCounts = Object.values(tickets).reduce((acc, t) => {
+      acc[t.status] = (acc[t.status] || 0) + 1;
+      return acc;
+    }, {});
+    return json(res, {
+      ok: true,
+      uptimeSec: Math.floor((Date.now() - metrics.startedAt) / 1000),
+      queueDepth: queue.length,
+      running: running.size,
+      ticketCount: Object.keys(tickets).length,
+      statusCounts,
+      metrics,
+    });
+  }
+
   if (url.pathname === "/api/config" && req.method === "GET") {
     return json(res, { ...config, availableSkills: config.projectPath ? scanSkills(config.projectPath) : [] });
   }
@@ -692,11 +728,7 @@ const server = http.createServer((req, res) => {
     t.proc = null;
     running.delete(t.id);
     t.status = TASK_STATUS.HALTED;
-    t.pendingAction = createPendingAction("selection", "작업이 중지되었습니다.", [
-      { id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } },
-      { id: "advance", label: "다음 단계로 진행", payload: { advance: true } },
-      { id: "halt", label: "중단 유지", payload: { halt: true } },
-    ], { reason: "stopped_by_user" });
+    t.pendingAction = createRecoveryPendingAction("stopped_by_user", "작업이 중지되었습니다. 재시도/다음 단계 진행/중단 유지를 선택하세요.");
     emitTicket(t);
     schedule();
     return json(res, sanitizeTicket(t));
@@ -738,4 +770,5 @@ module.exports = {
   loadJsonWithRecovery,
   repairDbState,
   planDispatch,
+  createRecoveryPendingAction,
 };

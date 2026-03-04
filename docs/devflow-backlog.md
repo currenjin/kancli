@@ -88,15 +88,9 @@
   - 테스트 파일: `test/concurrency-smoke.test.js`
 
 ## T012 (P2) 운영성 개선
-- 상태: TODO
-- 목표:
-  - `/health` endpoint
-  - 기본 metrics counter
-  - blocked/halted recovery action 가이드 강화
-
-## T012 (P2) 운영성 개선
-- 상태: TODO
-- 목표:
-  - `/health` endpoint
-  - 기본 metrics counter
-  - blocked/halted recovery action 가이드 강화
+- 상태: DONE
+- 결과:
+  - `/health` endpoint 추가(uptime, queue/running depth, statusCounts, metrics 노출)
+  - 기본 metrics counter 추가(tickets/steps/errors/redline/stale-action/sse)
+  - `createRecoveryPendingAction` 도입으로 blocked/halted 복구 액션 통일(retry/advance/halt)
+  - 관련 테스트 추가: `test/operability.test.js`
