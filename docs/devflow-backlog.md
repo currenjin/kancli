@@ -72,22 +72,27 @@
   - 관련 테스트 추가: `test/persistence-reliability.test.js`
 
 ## T010 (P1) SSE 이벤트 모델 확장
-- 상태: TODO
-- 목표:
-  - task lifecycle + step event + redline event 분리 발행
-  - dashboard live-update 고도화(상태/요약/카운터)
-
-## T010 (P1) SSE 이벤트 모델 확장
-- 상태: TODO
-- 목표:
-  - task lifecycle + step event + redline event 분리 발행
-  - dashboard live-update 고도화(상태/요약/카운터)
+- 상태: DONE
+- 결과:
+  - `task_lifecycle`, `step_event`, `redline_event`, `artifact_added` SSE 이벤트 추가
+  - step 시작/완료/에러/pending-action 시점 이벤트 발행
+  - redline halt 및 artifact 적재 시 전용 이벤트 발행
+  - 대시보드 Live Events 카운터 추가(이벤트 타입별 실시간 누적)
 
 ## T011 (P1) 동시성 스모크/회귀 테스트(3-worker)
+- 상태: DONE
+- 결과:
+  - scheduler dispatch 모델(`planDispatch`) 분리로 동시성 로직 테스트 가능화
+  - 3 worker 제한 스모크 테스트 추가
+  - FIFO fairness/slot-full 회귀 테스트 추가
+  - 테스트 파일: `test/concurrency-smoke.test.js`
+
+## T012 (P2) 운영성 개선
 - 상태: TODO
 - 목표:
-  - 3 worker 병렬 실행 smoke test
-  - queue fairness + blocked/halted regression test
+  - `/health` endpoint
+  - 기본 metrics counter
+  - blocked/halted recovery action 가이드 강화
 
 ## T012 (P2) 운영성 개선
 - 상태: TODO

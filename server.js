@@ -192,7 +192,7 @@ function isPendingActionExpired(pendingAction) {
 
 function addArtifact(ticket, artifact) {
   if (!artifact) return;
-  ticket.artifacts.push({
+  const normalized = {
     type: artifact.type || "artifact",
     name: artifact.name || artifact.path || "unnamed",
     path: artifact.path || null,
@@ -201,7 +201,9 @@ function addArtifact(ticket, artifact) {
     size: artifact.size || null,
     metadata: artifact.metadata || {},
     createdAt: Date.now(),
-  });
+  };
+  ticket.artifacts.push(normalized);
+  emitEvent("artifact_added", { ticketId: ticket.id, artifact: normalized });
 }
 
 function updateSummary(ticket) {
@@ -222,10 +224,15 @@ function broadcast(event, payload) {
   }
 }
 
+function emitEvent(event, payload = {}) {
+  broadcast(event, { timestamp: Date.now(), ...payload });
+}
+
 function emitTicket(ticket) {
   updateSummary(ticket);
   saveDb();
   broadcast("ticket", sanitizeTicket(ticket));
+  emitEvent("task_lifecycle", { ticketId: ticket.id, status: ticket.status, currentStep: ticket.currentStep });
 }
 
 function resolveEventPendingAction(ev) {
@@ -261,6 +268,7 @@ function applyRedline(ticket, input = {}) {
   if (!result.halted || ticket.status === TASK_STATUS.HALTED) return;
 
   ticket.status = TASK_STATUS.HALTED;
+  emitEvent("redline_event", { ticketId: ticket.id, reason: result.reason, kind: "halt" });
   ticket.pendingAction = createPendingAction(
     "selection",
     `Redline halt: ${result.reason}`,
@@ -302,7 +310,10 @@ function processContentBlocks(ticket, blocks) {
       processText(ticket, text.length > 500 ? `${text.substring(0, 500)}...\n` : `${text}\n`);
     } else if (["pending_action", "action_request", "action"].includes(b.type)) {
       const pa = resolveEventPendingAction({ event: b });
-      if (pa) ticket.pendingAction = pa;
+      if (pa) {
+        ticket.pendingAction = pa;
+        emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "pending_action", pendingActionType: pa.type });
+      }
     } else if (["artifact", "output_file", "file"].includes(b.type)) {
       const artifact = resolveEventArtifact({ event: b });
       if (artifact) addArtifact(ticket, artifact);
@@ -317,7 +328,10 @@ function parseStreamEvent(ticket, ev) {
   if (ev.type === "result" && ev.result) processText(ticket, `\n${ev.result}`);
 
   const pa = resolveEventPendingAction(ev);
-  if (pa) ticket.pendingAction = pa;
+  if (pa) {
+    ticket.pendingAction = pa;
+    emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "pending_action", pendingActionType: pa.type });
+  }
 
   const artifact = resolveEventArtifact(ev);
   if (artifact) addArtifact(ticket, artifact);
@@ -347,6 +361,7 @@ function startStep(id, options = {}) {
   ticket.pendingAction = null;
   ticket.log = "";
   running.add(id);
+  emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_started" });
   emitTicket(ticket);
 
   const resolutionPrompt = resolutionToPrompt(options.resolution);
@@ -387,6 +402,7 @@ function startStep(id, options = {}) {
   proc.on("exit", (code) => {
     running.delete(id);
     ticket.proc = null;
+    emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_completed", exitCode: code });
     processText(ticket, `\n\n--- 완료 (exit ${code}) ---`);
 
     if (ticket.status === TASK_STATUS.HALTED) {
@@ -406,6 +422,7 @@ function startStep(id, options = {}) {
   proc.on("error", (err) => {
     running.delete(id);
     ticket.proc = null;
+    emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_error", error: err.message });
     processText(ticket, `\n\n--- 에러: ${err.message} ---`);
     ticket.status = TASK_STATUS.BLOCKED;
     ticket.pendingAction = createPendingAction(
@@ -419,9 +436,19 @@ function startStep(id, options = {}) {
   });
 }
 
+function planDispatch(runningCount, queueIds, maxWorkers = MAX_WORKERS) {
+  const availableSlots = Math.max(0, maxWorkers - runningCount);
+  return {
+    toStart: queueIds.slice(0, availableSlots),
+    remaining: queueIds.slice(availableSlots),
+  };
+}
+
 function schedule() {
-  while (running.size < MAX_WORKERS && queue.length > 0) {
-    const id = queue.shift();
+  const plan = planDispatch(running.size, queue);
+  queue.length = 0;
+  queue.push(...plan.remaining);
+  for (const id of plan.toStart) {
     const t = tickets[id];
     if (!t) continue;
     startStep(id);
@@ -710,4 +737,5 @@ module.exports = {
   writeJsonAtomic,
   loadJsonWithRecovery,
   repairDbState,
+  planDispatch,
 };

@@ -26,6 +26,10 @@
 <body>
   <div class="container">
     <h2>DevFlow Dashboard</h2>
+    <div class="card" style="margin-bottom:12px">
+      <b>Live Events</b>
+      <div id="event-stats" class="muted" style="margin-top:6px">lifecycle:0 | step:0 | redline:0 | artifact:0</div>
+    </div>
 
     <div class="card" style="margin-bottom:12px">
       <div class="row">
@@ -54,6 +58,7 @@ let state = { pipeline: [], tickets: [] };
 let availableSkills = [];
 let editPipeline = [];
 let openLogs = new Set();
+let eventStats = { lifecycle: 0, step: 0, redline: 0, artifact: 0 };
 
 function byStatus(t) {
   if (t.status === 'queued') return 'queued';
@@ -93,6 +98,7 @@ function ticketHtml(t) {
 
 function render() {
   document.getElementById('pipeline-text').textContent = state.pipeline.length ? state.pipeline.join(' → ') : '-';
+  document.getElementById('event-stats').textContent = `lifecycle:${eventStats.lifecycle} | step:${eventStats.step} | redline:${eventStats.redline} | artifact:${eventStats.artifact}`;
   const cols = { queued: [], running: [], review: [], blocked: [] };
   for (const t of state.tickets) cols[byStatus(t)].push(t);
   for (const key of Object.keys(cols)) {
@@ -170,6 +176,10 @@ function connectSSE() {
     state.tickets = state.tickets.filter(t => t.id !== id);
     render();
   });
+  es.addEventListener('task_lifecycle', () => { eventStats.lifecycle += 1; render(); });
+  es.addEventListener('step_event', () => { eventStats.step += 1; render(); });
+  es.addEventListener('redline_event', () => { eventStats.redline += 1; render(); });
+  es.addEventListener('artifact_added', () => { eventStats.artifact += 1; render(); });
   es.onerror = () => { setTimeout(connectSSE, 2000); };
 }
 
