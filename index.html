@@ -7,15 +7,12 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; background: #f8f9fa; color: #333; }
-    .container { max-width: 860px; margin: 0 auto; padding: 24px; }
-
-    /* Header */
+    .container { max-width: 980px; margin: 0 auto; padding: 24px; }
     .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
     h1 { font-size: 22px; }
     .btn-config { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; color: #666; }
     .btn-config:hover { background: #f3f4f6; }
 
-    /* Config Panel */
     .config-panel { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; display: none; }
     .config-panel.open { display: block; }
     .config-section { margin-bottom: 14px; }
@@ -33,28 +30,22 @@
     .skill-chip:hover { background: #eff6ff; border-color: #93c5fd; }
     .skill-chip.in-pipeline { background: #dbeafe; border-color: #93c5fd; color: #2563eb; }
 
-    /* Pipeline Builder */
     .pipeline-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; min-height: 32px; }
     .pipeline-item { display: flex; align-items: center; gap: 4px; background: #dbeafe; border: 1px solid #93c5fd; border-radius: 6px; padding: 4px 8px; font-size: 12px; color: #2563eb; }
-    .pipeline-item .arrows { display: flex; flex-direction: column; gap: 0; line-height: 1; }
+    .pipeline-item .arrows { display: flex; flex-direction: column; line-height: 1; }
     .pipeline-item .arrows button { background: none; border: none; cursor: pointer; font-size: 9px; padding: 0 2px; color: #2563eb; }
-    .pipeline-item .arrows button:hover { color: #1d4ed8; }
     .pipeline-item .remove { background: none; border: none; cursor: pointer; color: #ef4444; font-size: 14px; line-height: 1; margin-left: 2px; }
     .pipeline-arrow { color: #ccc; font-size: 12px; }
 
-    /* Pipeline Display */
     .pipeline { display: flex; gap: 6px; margin-bottom: 20px; font-size: 13px; flex-wrap: wrap; }
     .pipeline span { background: #e5e7eb; padding: 4px 10px; border-radius: 6px; }
     .pipeline .arrow { background: none; color: #ccc; }
 
-    /* Add Form */
     .add-form { display: flex; gap: 8px; margin-bottom: 24px; }
     .add-form input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; font-family: monospace; }
     .add-form button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
-    .add-form button:hover { background: #1d4ed8; }
     .add-form button:disabled { background: #94a3b8; cursor: not-allowed; }
 
-    /* Ticket */
     .ticket { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 10px; }
     .ticket-header { display: flex; align-items: center; justify-content: space-between; }
     .ticket-id { font-family: monospace; font-weight: 700; font-size: 16px; }
@@ -63,7 +54,9 @@
     .badge-review { background: #fef3c7; color: #d97706; }
     .badge-done { background: #dcfce7; color: #16a34a; }
     .badge-awaiting { background: #f3e8ff; color: #9333ea; }
-    .badge-review-plan { background: #fff7ed; color: #ea580c; }
+    .badge-queued { background: #e2e8f0; color: #475569; }
+    .badge-blocked { background: #fee2e2; color: #b91c1c; }
+    .badge-halted { background: #fef3c7; color: #92400e; }
 
     .progress { display: flex; gap: 4px; margin: 10px 0; }
     .progress-bar { flex: 1; height: 6px; border-radius: 3px; background: #f3f4f6; }
@@ -71,96 +64,67 @@
     .progress-bar.active { background: #93c5fd; }
     .progress-bar.review { background: #fde68a; }
     .progress-bar.awaiting { background: #d8b4fe; }
+    .progress-bar.blocked { background: #fca5a5; }
 
     .current-skill { font-size: 13px; color: #666; margin-bottom: 8px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
     .btn-log { background: #f3f4f6; }
-    .btn-log:hover { background: #e5e7eb; }
-    .btn-plan { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-    .btn-plan:hover { background: #dcfce7; }
     .btn-next { background: #2563eb; color: white; font-weight: 600; }
-    .btn-next:hover { background: #1d4ed8; }
-    .btn-done { background: #16a34a; color: white; font-weight: 600; }
-
-    /* Action buttons for augmented-coding */
-    .action-group { display: flex; gap: 6px; align-items: center; }
-    .action-sep { color: #ddd; font-size: 14px; }
-    .btn-go { background: #2563eb; color: white; font-weight: 600; }
-    .btn-go:hover { background: #1d4ed8; }
-    .btn-commit { background: #16a34a; color: white; font-weight: 600; }
-    .btn-commit:hover { background: #15803d; }
-    .btn-refactor { background: #d97706; color: white; font-weight: 600; }
-    .btn-refactor:hover { background: #b45309; }
-    .btn-advance { background: white; color: #666; border: 1px solid #ddd; font-size: 12px; }
-    .btn-advance:hover { background: #f3f4f6; }
     .btn-stop { background: #fef2f2; color: #ef4444; border: 1px solid #fca5a5; font-weight: 600; }
-    .btn-stop:hover { background: #fee2e2; }
     .btn-delete { background: #fef2f2; color: #ef4444; font-size: 11px; }
-    .btn-delete:hover { background: #fee2e2; }
-    .btn-rerun { background: white; color: #666; border: 1px solid #ddd; font-size: 12px; }
-    .btn-rerun:hover { background: #f3f4f6; }
-    .btn-skip { background: #2563eb; color: white; font-weight: 600; }
-    .btn-skip:hover { background: #1d4ed8; }
+    .btn-action { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
+    .btn-action:hover { background: #e0e7ff; }
 
-    /* Log Box */
-    .log-box { margin-top: 10px; background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.6; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: Menlo, Monaco, monospace; }
+    .pending-box { margin-top: 10px; border: 1px solid #e9d5ff; background: #faf5ff; border-radius: 8px; padding: 12px; }
+    .pending-title { font-size: 12px; color: #7e22ce; font-weight: 700; margin-bottom: 4px; }
+    .pending-prompt { font-size: 13px; margin-bottom: 8px; color: #4c1d95; }
+    .pending-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-    /* Plan Box */
+    .artifact-box { margin-top: 10px; border: 1px solid #e5e7eb; background: #fcfcfd; border-radius: 8px; padding: 10px; }
+    .artifact-title { font-size: 12px; color: #374151; font-weight: 700; margin-bottom: 6px; }
+    .artifact-list { list-style: none; font-size: 12px; color: #4b5563; }
+    .artifact-list li { padding: 3px 0; font-family: Menlo, Monaco, monospace; }
+
+    .log-box { margin-top: 10px; background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.6; max-height: 350px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: Menlo, Monaco, monospace; }
     .plan-box { margin-top: 10px; background: #fefefe; border: 1px solid #e5e7eb; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.7; max-height: 500px; overflow: auto; }
-    .plan-box h2 { font-size: 18px; margin: 16px 0 8px; color: #111; }
-    .plan-box h2:first-child { margin-top: 0; }
-    .plan-box h3 { font-size: 15px; margin: 12px 0 6px; color: #333; }
-    .plan-box h4 { font-size: 14px; margin: 10px 0 4px; color: #555; }
-    .plan-box hr { border: none; border-top: 1px solid #e5e7eb; margin: 12px 0; }
-    .plan-box code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; font-family: Menlo, Monaco, monospace; }
-    .plan-box .check-done { color: #16a34a; }
-    .plan-box .check-todo { color: #999; }
 
     .empty { color: #aaa; text-align: center; padding: 40px; }
-    .error-msg { color: #ef4444; font-size: 13px; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
     <div class="header">
       <h1>DevFlow</h1>
       <button class="btn-config" onclick="toggleConfig()">Settings</button>
     </div>
 
-    <!-- Config Panel -->
     <div class="config-panel" id="config-panel">
       <div class="config-section">
         <div class="config-label">프로젝트 경로</div>
         <div class="config-row">
-          <input id="project-path" placeholder="/Users/.../roouty-backend" />
+          <input id="project-path" placeholder="/Users/.../project" />
           <button class="btn-scan" onclick="scanSkills()">스캔</button>
         </div>
       </div>
       <div class="config-section">
-        <div class="config-label">사용 가능한 스킬 (클릭하여 파이프라인에 추가)</div>
+        <div class="config-label">사용 가능한 스킬</div>
         <div class="skill-chips" id="skill-chips"></div>
       </div>
       <div class="config-section">
         <div class="config-label">파이프라인 순서</div>
         <div class="pipeline-list" id="pipeline-builder"></div>
       </div>
-      <div style="text-align: right; margin-top: 10px;">
-        <button class="btn-save" onclick="saveConfig()">저장</button>
-      </div>
+      <div style="text-align: right; margin-top: 10px;"><button class="btn-save" onclick="saveConfig()">저장</button></div>
     </div>
 
-    <!-- Pipeline Display -->
     <div class="pipeline" id="pipeline"></div>
 
-    <!-- Add Ticket -->
     <div class="add-form">
       <input id="ticket-input" placeholder="RP-5316" />
       <button id="add-btn" onclick="addTicket()">추가</button>
     </div>
 
-    <!-- Ticket List -->
     <div id="ticket-list"></div>
   </div>
 
@@ -172,9 +136,7 @@
     let openLogId = null;
     let openPlanId = null;
     let savedLogScroll = { top: 0, nearBottom: true };
-    let savedPlanScroll = { top: 0 };
 
-    // --- Config ---
     function toggleConfig() {
       configOpen = !configOpen;
       document.getElementById("config-panel").classList.toggle("open", configOpen);
@@ -213,11 +175,8 @@
 
     function toggleSkillInPipeline(skill) {
       const idx = editPipeline.indexOf(skill);
-      if (idx >= 0) {
-        editPipeline.splice(idx, 1);
-      } else {
-        editPipeline.push(skill);
-      }
+      if (idx >= 0) editPipeline.splice(idx, 1);
+      else editPipeline.push(skill);
       renderSkillChips();
       renderPipelineBuilder();
     }
@@ -267,9 +226,7 @@
       refresh();
     }
 
-    // --- Main ---
     async function refresh() {
-      // Save scroll positions BEFORE re-render destroys the DOM
       if (openLogId) {
         const logEl = document.getElementById(`log-${openLogId}`);
         if (logEl) {
@@ -277,23 +234,13 @@
           savedLogScroll.top = logEl.scrollTop;
         }
       }
-      if (openPlanId) {
-        const planEl = document.getElementById(`plan-${openPlanId}`);
-        if (planEl) savedPlanScroll.top = planEl.scrollTop;
-      }
 
       const res = await fetch("/api/tickets");
       const data = await res.json();
-      pipeline = data.pipeline;
+      pipeline = data.pipeline || [];
       renderPipeline();
-      renderTickets(data.tickets);
+      renderTickets(data.tickets || []);
       if (openLogId) refreshLog(openLogId);
-
-      // Restore plan scroll
-      if (openPlanId) {
-        const planEl = document.getElementById(`plan-${openPlanId}`);
-        if (planEl) planEl.scrollTop = savedPlanScroll.top;
-      }
     }
 
     function renderPipeline() {
@@ -304,158 +251,146 @@
         return;
       }
       document.getElementById("add-btn").disabled = false;
-      el.innerHTML = pipeline
-        .map((s, i) => `<span>${s}</span>${i < pipeline.length - 1 ? '<span class="arrow">→</span>' : ""}`)
-        .join("");
+      el.innerHTML = pipeline.map((s, i) => `<span>${s}</span>${i < pipeline.length - 1 ? '<span class="arrow">→</span>' : ''}`).join('');
+    }
+
+    function statusMeta(status) {
+      const map = {
+        queued: { cls: 'badge-queued', text: '대기' },
+        running: { cls: 'badge-running', text: '실행 중' },
+        awaiting_input: { cls: 'badge-awaiting', text: '입력 대기' },
+        review: { cls: 'badge-review', text: '확인 필요' },
+        blocked: { cls: 'badge-blocked', text: '차단됨' },
+        done: { cls: 'badge-done', text: '완료' },
+        halted: { cls: 'badge-halted', text: '중지됨' },
+        // backward compatibility:
+        'awaiting-action': { cls: 'badge-awaiting', text: '입력 대기' },
+        'review-plan': { cls: 'badge-awaiting', text: '입력 대기' },
+      };
+      return map[status] || { cls: '', text: status };
     }
 
     function renderTickets(tickets) {
       const el = document.getElementById("ticket-list");
-      if (tickets.length === 0) {
+      if (!tickets.length) {
         el.innerHTML = '<p class="empty">티켓을 추가하면 자동으로 파이프라인이 시작됩니다.</p>';
         return;
       }
+
       el.innerHTML = tickets.map((t) => {
-        const badgeMap = {
-          running: { cls: "badge-running", text: "실행 중" },
-          review: { cls: "badge-review", text: "확인 필요" },
-          done: { cls: "badge-done", text: "완료" },
-          "awaiting-action": { cls: "badge-awaiting", text: "액션 선택" },
-          "review-plan": { cls: "badge-review-plan", text: "Plan 확인" },
-        };
-        const badge = badgeMap[t.status] || { cls: "", text: "" };
-
+        const badge = statusMeta(t.status);
         const bars = pipeline.map((_, i) => {
-          let cls = "";
-          if (i < t.currentStep || t.status === "done") cls = "done";
-          else if (i === t.currentStep && t.status === "running") cls = "active";
-          else if (i === t.currentStep && t.status === "review") cls = "review";
-          else if (i === t.currentStep && t.status === "awaiting-action") cls = "awaiting";
-          else if (i === t.currentStep && t.status === "review-plan") cls = "review";
+          let cls = '';
+          if (i < t.currentStep || t.status === 'done') cls = 'done';
+          else if (i === t.currentStep && t.status === 'running') cls = 'active';
+          else if (i === t.currentStep && (t.status === 'review' || t.status === 'halted')) cls = 'review';
+          else if (i === t.currentStep && (t.status === 'awaiting_input' || t.status === 'awaiting-action')) cls = 'awaiting';
+          else if (i === t.currentStep && t.status === 'blocked') cls = 'blocked';
           return `<div class="progress-bar ${cls}"></div>`;
-        }).join("");
+        }).join('');
 
-        const currentSkill = pipeline[t.currentStep] || "";
-        const skillText = t.status === "done"
-          ? "모든 스킬 완료"
-          : `현재: /${currentSkill}${t.status === "running" ? " ..." : ""}`;
+        const currentSkill = pipeline[t.currentStep] || '';
+        const skillText = t.status === 'done' ? '모든 스킬 완료' : `현재: /${currentSkill}`;
+        const logBtn = `<button class="btn btn-log" onclick="toggleLog('${t.id}')">${openLogId === t.id ? '로그 닫기' : '로그 보기'}</button>`;
+        const planBtn = t.planFile ? `<button class="btn btn-log" onclick="togglePlan('${t.id}')">${openPlanId === t.id ? 'Plan 닫기' : 'Plan 보기'}</button>` : '';
+        const stopBtn = t.status === 'running' ? `<button class="btn btn-stop" onclick="stopTicket('${t.id}')">중지</button>` : '';
+        const nextBtn = (t.status === 'review' && t.currentStep < pipeline.length - 1)
+          ? `<button class="btn btn-next" onclick="nextStep('${t.id}')">확인 → /${pipeline[t.currentStep + 1]}</button>`
+          : ((t.status === 'review' && t.currentStep === pipeline.length - 1)
+            ? `<button class="btn btn-next" onclick="nextStep('${t.id}')">완료 처리</button>` : '');
+        const deleteBtn = t.status !== 'running' ? `<button class="btn btn-delete" style="margin-left:auto" onclick="deleteTicket('${t.id}')">삭제</button>` : '';
 
-        // Buttons
-        const logBtn = `<button class="btn btn-log" onclick="toggleLog('${t.id}')">${openLogId === t.id ? "로그 닫기" : "로그 보기"}</button>`;
-        const planBtn = t.planFile
-          ? `<button class="btn btn-plan" onclick="togglePlan('${t.id}')">Plan ${openPlanId === t.id ? "닫기" : "보기"}</button>`
-          : "";
-
-        let actionBtns = "";
-        if (t.status === "running") {
-          actionBtns = `<button class="btn btn-stop" onclick="stopTicket('${t.id}')">중지</button>`;
-        } else if (t.status === "review-plan") {
-          actionBtns = `
-            <div class="action-group">
-              <button class="btn btn-skip" onclick="skipPlan('${t.id}')">기존 Plan 사용 → 다음 단계</button>
-              <button class="btn btn-rerun" onclick="rerunPlan('${t.id}')">Plan 다시 생성</button>
-            </div>`;
-        } else if (t.status === "awaiting-action" && currentSkill === "augmented-coding") {
-          actionBtns = `
-            <div class="action-group">
-              <button class="btn btn-go" onclick="runAction('${t.id}','go')">go</button>
-              <button class="btn btn-commit" onclick="runAction('${t.id}','commit')">commit</button>
-              <button class="btn btn-refactor" onclick="runAction('${t.id}','refactor')">refactor</button>
-              <span class="action-sep">|</span>
-              <button class="btn btn-advance" onclick="nextStep('${t.id}')">→ /${pipeline[t.currentStep + 1] || '완료'} 진행</button>
-            </div>`;
-        } else if (t.status === "review" && t.currentStep < pipeline.length - 1) {
-          actionBtns = `<button class="btn btn-next" onclick="nextStep('${t.id}')">확인 → /${pipeline[t.currentStep + 1]}</button>`;
-        } else if (t.status === "review" && t.currentStep === pipeline.length - 1) {
-          actionBtns = `<button class="btn btn-done" onclick="nextStep('${t.id}')">완료 처리</button>`;
-        }
-
-        const logBox = openLogId === t.id ? `<div class="log-box" id="log-${t.id}">loading...</div>` : "";
-        const showPlan = (openPlanId === t.id || t.status === "review-plan") && t.planContent;
-        const planBox = showPlan ? `<div class="plan-box" id="plan-${t.id}">${renderMarkdown(t.planContent)}</div>` : "";
-
-        const branchInfo = t.branchName
-          ? `<span style="font-size:11px;color:#9333ea;font-family:monospace;margin-left:8px">${t.branchName}</span>`
-          : "";
-        const deleteBtn = t.status !== "running"
-          ? `<button class="btn btn-delete" style="margin-left:auto" onclick="deleteTicket('${t.id}')">삭제</button>`
-          : "";
+        const pendingBox = renderPendingAction(t);
+        const artifactBox = renderArtifacts(t);
+        const showPlan = (openPlanId === t.id) && t.planContent;
+        const planBox = showPlan ? `<div class="plan-box" id="plan-${t.id}">${renderMarkdown(t.planContent)}</div>` : '';
+        const logBox = openLogId === t.id ? `<div class="log-box" id="log-${t.id}">loading...</div>` : '';
 
         return `
           <div class="ticket">
             <div class="ticket-header">
-              <div><span class="ticket-id">${t.jiraTicket}</span><span class="badge ${badge.cls}">${badge.text}</span>${branchInfo}</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:12px;color:#aaa">${t.currentStep + 1}/${pipeline.length}</span>
-                ${deleteBtn}
-              </div>
+              <div><span class="ticket-id">${t.jiraTicket}</span><span class="badge ${badge.cls}">${badge.text}</span><span style="font-size:11px;color:#9333ea;font-family:monospace;margin-left:8px">${t.branchName || ''}</span></div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:#aaa">${t.currentStep + 1}/${pipeline.length || 1}</span>${deleteBtn}</div>
             </div>
             <div class="progress">${bars}</div>
             <div class="current-skill">${skillText}</div>
-            <div class="actions">${logBtn}${planBtn}${actionBtns}</div>
+            <div class="actions">${logBtn}${planBtn}${stopBtn}${nextBtn}</div>
+            ${pendingBox}
+            ${artifactBox}
             ${planBox}
             ${logBox}
-          </div>`;
-      }).join("");
+          </div>
+        `;
+      }).join('');
 
       if (openLogId) refreshLog(openLogId);
     }
 
-    // --- Actions ---
+    function renderPendingAction(ticket) {
+      const pa = ticket.pendingAction;
+      if (!pa || !(ticket.status === 'awaiting_input' || ticket.status === 'blocked' || ticket.status === 'awaiting-action' || ticket.status === 'review-plan')) return '';
+      const options = (pa.options || []).map(o =>
+        `<button class="btn btn-action" onclick="resolveAction('${ticket.id}','${o.id}')">${escapeHtml(o.label || o.id)}</button>`
+      ).join('');
+      return `<div class="pending-box">
+        <div class="pending-title">입력 요청 (${escapeHtml(pa.type || 'selection')})</div>
+        <div class="pending-prompt">${escapeHtml(pa.prompt || '사용자 입력이 필요합니다.')}</div>
+        <div class="pending-actions">${options || '<span style="font-size:12px;color:#666">선택 가능한 옵션이 없습니다.</span>'}</div>
+      </div>`;
+    }
+
+    function renderArtifacts(ticket) {
+      const items = ticket.artifacts || [];
+      if (!items.length) return '';
+      const latest = items.slice(-8).reverse();
+      return `<div class="artifact-box">
+        <div class="artifact-title">Artifacts (최신 ${latest.length}개)</div>
+        <ul class="artifact-list">
+          ${latest.map(a => `<li>[${escapeHtml(a.type || 'artifact')}] ${escapeHtml(a.name || a.path || 'unnamed')}</li>`).join('')}
+        </ul>
+      </div>`;
+    }
+
     async function addTicket() {
-      const input = document.getElementById("ticket-input");
-      const val = input.value.trim();
-      if (!val) return;
-      await fetch("/api/tickets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jiraTicket: val }),
+      const input = document.getElementById('ticket-input');
+      const jiraTicket = input.value.trim();
+      if (!jiraTicket) return;
+      await fetch('/api/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jiraTicket }),
       });
-      input.value = "";
+      input.value = '';
       refresh();
     }
 
     async function nextStep(id) {
-      await fetch(`/api/tickets/${id}/next`, { method: "POST" });
+      await fetch(`/api/tickets/${id}/next`, { method: 'POST' });
       refresh();
     }
 
     async function stopTicket(id) {
-      await fetch(`/api/tickets/${id}/stop`, { method: "POST" });
-      refresh();
-    }
-
-    async function skipPlan(id) {
-      await fetch(`/api/tickets/${id}/skip-plan`, { method: "POST" });
-      refresh();
-    }
-
-    async function rerunPlan(id) {
-      await fetch(`/api/tickets/${id}/rerun-plan`, { method: "POST" });
+      await fetch(`/api/tickets/${id}/stop`, { method: 'POST' });
       refresh();
     }
 
     async function deleteTicket(id) {
-      if (!confirm("이 티켓을 삭제하고 worktree를 정리할까요?")) return;
-      await fetch(`/api/tickets/${id}`, { method: "DELETE" });
+      if (!confirm('이 티켓을 삭제하고 worktree를 정리할까요?')) return;
+      await fetch(`/api/tickets/${id}`, { method: 'DELETE' });
       if (openLogId === id) openLogId = null;
       if (openPlanId === id) openPlanId = null;
       refresh();
     }
 
-    async function runAction(id, action) {
-      // Find ticket to get planFile
-      const res = await fetch(`/api/tickets/${id}/log`);
-      const data = await res.json();
-      await fetch(`/api/tickets/${id}/action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, planFile: data.planFile }),
+    async function resolveAction(id, actionId) {
+      await fetch(`/api/tickets/${id}/actions/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionId }),
       });
       refresh();
     }
 
-    // --- Log ---
     function toggleLog(id) {
       openLogId = openLogId === id ? null : id;
       refresh();
@@ -465,49 +400,50 @@
       const res = await fetch(`/api/tickets/${id}/log`);
       const data = await res.json();
       const el = document.getElementById(`log-${id}`);
-      if (el) {
-        el.textContent = data.log || "waiting...";
-        // Use saved scroll state (captured before DOM re-render)
-        if (savedLogScroll.nearBottom) {
-          el.scrollTop = el.scrollHeight;
-        } else {
-          el.scrollTop = savedLogScroll.top;
-        }
-      }
+      if (!el) return;
+      el.textContent = data.log || 'waiting...';
+      if (savedLogScroll.nearBottom) el.scrollTop = el.scrollHeight;
+      else el.scrollTop = savedLogScroll.top;
     }
 
-    // --- Plan ---
     function togglePlan(id) {
       openPlanId = openPlanId === id ? null : id;
       refresh();
     }
 
     function renderMarkdown(text) {
-      if (!text) return "";
+      if (!text) return '';
       return text
-        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/^### (.+)$/gm, '<h4>$1</h4>')
         .replace(/^## (.+)$/gm, '<h3>$1</h3>')
         .replace(/^# (.+)$/gm, '<h2>$1</h2>')
         .replace(/^---$/gm, '<hr>')
-        .replace(/- \[x\] (.+)/g, '<div class="check-done">&#9745; $1</div>')
-        .replace(/- \[ \] (.+)/g, '<div class="check-todo">&#9744; $1</div>')
+        .replace(/- \[x\] (.+)/g, '<div style="color:#16a34a">&#9745; $1</div>')
+        .replace(/- \[ \] (.+)/g, '<div style="color:#999">&#9744; $1</div>')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/`(.+?)`/g, '<code>$1</code>')
         .replace(/\n\n/g, '<br><br>')
         .replace(/\n/g, '<br>');
     }
 
-    // --- Init ---
-    document.getElementById("ticket-input").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") addTicket();
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    document.getElementById('ticket-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') addTicket();
     });
 
-    // Check if config exists, auto-open settings if not
-    fetch("/api/config").then(r => r.json()).then(data => {
+    fetch('/api/config').then(r => r.json()).then(data => {
       if (!data.projectPath || !data.pipeline.length) {
         configOpen = true;
-        document.getElementById("config-panel").classList.add("open");
+        document.getElementById('config-panel').classList.add('open');
         loadConfig();
       }
     });
