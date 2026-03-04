@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevFlow</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f8f9fa; color: #333; }
+    .container { max-width: 860px; margin: 0 auto; padding: 24px; }
+
+    /* Header */
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    h1 { font-size: 22px; }
+    .btn-config { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; color: #666; }
+    .btn-config:hover { background: #f3f4f6; }
+
+    /* Config Panel */
+    .config-panel { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; display: none; }
+    .config-panel.open { display: block; }
+    .config-section { margin-bottom: 14px; }
+    .config-section:last-child { margin-bottom: 0; }
+    .config-label { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
+    .config-row { display: flex; gap: 8px; }
+    .config-row input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; }
+    .config-row button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .btn-scan { background: #e5e7eb; color: #333; }
+    .btn-scan:hover { background: #d1d5db; }
+    .btn-save { background: #2563eb; color: white; }
+    .btn-save:hover { background: #1d4ed8; }
+    .skill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .skill-chip { padding: 4px 10px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid #ddd; background: white; }
+    .skill-chip:hover { background: #eff6ff; border-color: #93c5fd; }
+    .skill-chip.in-pipeline { background: #dbeafe; border-color: #93c5fd; color: #2563eb; }
+
+    /* Pipeline Builder */
+    .pipeline-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; min-height: 32px; }
+    .pipeline-item { display: flex; align-items: center; gap: 4px; background: #dbeafe; border: 1px solid #93c5fd; border-radius: 6px; padding: 4px 8px; font-size: 12px; color: #2563eb; }
+    .pipeline-item .arrows { display: flex; flex-direction: column; gap: 0; line-height: 1; }
+    .pipeline-item .arrows button { background: none; border: none; cursor: pointer; font-size: 9px; padding: 0 2px; color: #2563eb; }
+    .pipeline-item .arrows button:hover { color: #1d4ed8; }
+    .pipeline-item .remove { background: none; border: none; cursor: pointer; color: #ef4444; font-size: 14px; line-height: 1; margin-left: 2px; }
+    .pipeline-arrow { color: #ccc; font-size: 12px; }
+
+    /* Pipeline Display */
+    .pipeline { display: flex; gap: 6px; margin-bottom: 20px; font-size: 13px; flex-wrap: wrap; }
+    .pipeline span { background: #e5e7eb; padding: 4px 10px; border-radius: 6px; }
+    .pipeline .arrow { background: none; color: #ccc; }
+
+    /* Add Form */
+    .add-form { display: flex; gap: 8px; margin-bottom: 24px; }
+    .add-form input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; font-family: monospace; }
+    .add-form button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
+    .add-form button:hover { background: #1d4ed8; }
+    .add-form button:disabled { background: #94a3b8; cursor: not-allowed; }
+
+    /* Ticket */
+    .ticket { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 10px; }
+    .ticket-header { display: flex; align-items: center; justify-content: space-between; }
+    .ticket-id { font-family: monospace; font-weight: 700; font-size: 16px; }
+    .badge { font-size: 12px; padding: 3px 8px; border-radius: 20px; font-weight: 600; margin-left: 8px; }
+    .badge-running { background: #dbeafe; color: #2563eb; }
+    .badge-review { background: #fef3c7; color: #d97706; }
+    .badge-done { background: #dcfce7; color: #16a34a; }
+    .badge-awaiting { background: #f3e8ff; color: #9333ea; }
+
+    .progress { display: flex; gap: 4px; margin: 10px 0; }
+    .progress-bar { flex: 1; height: 6px; border-radius: 3px; background: #f3f4f6; }
+    .progress-bar.done { background: #bbf7d0; }
+    .progress-bar.active { background: #93c5fd; }
+    .progress-bar.review { background: #fde68a; }
+    .progress-bar.awaiting { background: #d8b4fe; }
+
+    .current-skill { font-size: 13px; color: #666; margin-bottom: 8px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .btn-log { background: #f3f4f6; }
+    .btn-log:hover { background: #e5e7eb; }
+    .btn-plan { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .btn-plan:hover { background: #dcfce7; }
+    .btn-next { background: #2563eb; color: white; font-weight: 600; }
+    .btn-next:hover { background: #1d4ed8; }
+    .btn-done { background: #16a34a; color: white; font-weight: 600; }
+
+    /* Action buttons for augmented-coding */
+    .action-group { display: flex; gap: 6px; align-items: center; }
+    .action-sep { color: #ddd; font-size: 14px; }
+    .btn-go { background: #2563eb; color: white; font-weight: 600; }
+    .btn-go:hover { background: #1d4ed8; }
+    .btn-commit { background: #16a34a; color: white; font-weight: 600; }
+    .btn-commit:hover { background: #15803d; }
+    .btn-refactor { background: #d97706; color: white; font-weight: 600; }
+    .btn-refactor:hover { background: #b45309; }
+    .btn-advance { background: white; color: #666; border: 1px solid #ddd; font-size: 12px; }
+    .btn-advance:hover { background: #f3f4f6; }
+
+    /* Log Box */
+    .log-box { margin-top: 10px; background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.6; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: Menlo, Monaco, monospace; }
+
+    /* Plan Box */
+    .plan-box { margin-top: 10px; background: #fefefe; border: 1px solid #e5e7eb; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.7; max-height: 500px; overflow: auto; }
+    .plan-box h2 { font-size: 18px; margin: 16px 0 8px; color: #111; }
+    .plan-box h2:first-child { margin-top: 0; }
+    .plan-box h3 { font-size: 15px; margin: 12px 0 6px; color: #333; }
+    .plan-box h4 { font-size: 14px; margin: 10px 0 4px; color: #555; }
+    .plan-box hr { border: none; border-top: 1px solid #e5e7eb; margin: 12px 0; }
+    .plan-box code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; font-family: Menlo, Monaco, monospace; }
+    .plan-box .check-done { color: #16a34a; }
+    .plan-box .check-todo { color: #999; }
+
+    .empty { color: #aaa; text-align: center; padding: 40px; }
+    .error-msg { color: #ef4444; font-size: 13px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>DevFlow</h1>
+      <button class="btn-config" onclick="toggleConfig()">Settings</button>
+    </div>
+
+    <!-- Config Panel -->
+    <div class="config-panel" id="config-panel">
+      <div class="config-section">
+        <div class="config-label">프로젝트 경로</div>
+        <div class="config-row">
+          <input id="project-path" placeholder="/Users/.../roouty-backend" />
+          <button class="btn-scan" onclick="scanSkills()">스캔</button>
+        </div>
+      </div>
+      <div class="config-section">
+        <div class="config-label">사용 가능한 스킬 (클릭하여 파이프라인에 추가)</div>
+        <div class="skill-chips" id="skill-chips"></div>
+      </div>
+      <div class="config-section">
+        <div class="config-label">파이프라인 순서</div>
+        <div class="pipeline-list" id="pipeline-builder"></div>
+      </div>
+      <div style="text-align: right; margin-top: 10px;">
+        <button class="btn-save" onclick="saveConfig()">저장</button>
+      </div>
+    </div>
+
+    <!-- Pipeline Display -->
+    <div class="pipeline" id="pipeline"></div>
+
+    <!-- Add Ticket -->
+    <div class="add-form">
+      <input id="ticket-input" placeholder="RP-5316" />
+      <button id="add-btn" onclick="addTicket()">추가</button>
+    </div>
+
+    <!-- Ticket List -->
+    <div id="ticket-list"></div>
+  </div>
+
+  <script>
+    let pipeline = [];
+    let availableSkills = [];
+    let editPipeline = [];
+    let configOpen = false;
+    let openLogId = null;
+    let openPlanId = null;
+    let savedLogScroll = { top: 0, nearBottom: true };
+    let savedPlanScroll = { top: 0 };
+
+    // --- Config ---
+    function toggleConfig() {
+      configOpen = !configOpen;
+      document.getElementById("config-panel").classList.toggle("open", configOpen);
+      if (configOpen) loadConfig();
+    }
+
+    async function loadConfig() {
+      const res = await fetch("/api/config");
+      const data = await res.json();
+      document.getElementById("project-path").value = data.projectPath || "";
+      availableSkills = data.availableSkills || [];
+      editPipeline = [...(data.pipeline || [])];
+      renderSkillChips();
+      renderPipelineBuilder();
+    }
+
+    async function scanSkills() {
+      const projectPath = document.getElementById("project-path").value.trim();
+      if (!projectPath) return;
+      const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(projectPath)}`);
+      const data = await res.json();
+      availableSkills = data.skills || [];
+      renderSkillChips();
+    }
+
+    function renderSkillChips() {
+      const el = document.getElementById("skill-chips");
+      if (availableSkills.length === 0) {
+        el.innerHTML = '<span style="color:#aaa;font-size:12px">프로젝트 경로를 입력하고 스캔하세요</span>';
+        return;
+      }
+      el.innerHTML = availableSkills.map(s =>
+        `<span class="skill-chip ${editPipeline.includes(s) ? 'in-pipeline' : ''}" onclick="toggleSkillInPipeline('${s}')">${s}</span>`
+      ).join("");
+    }
+
+    function toggleSkillInPipeline(skill) {
+      const idx = editPipeline.indexOf(skill);
+      if (idx >= 0) {
+        editPipeline.splice(idx, 1);
+      } else {
+        editPipeline.push(skill);
+      }
+      renderSkillChips();
+      renderPipelineBuilder();
+    }
+
+    function renderPipelineBuilder() {
+      const el = document.getElementById("pipeline-builder");
+      if (editPipeline.length === 0) {
+        el.innerHTML = '<span style="color:#aaa;font-size:12px">스킬을 클릭하여 추가하세요</span>';
+        return;
+      }
+      el.innerHTML = editPipeline.map((s, i) => {
+        const arrow = i < editPipeline.length - 1 ? '<span class="pipeline-arrow">→</span>' : '';
+        return `<div class="pipeline-item">
+          <span class="arrows">
+            <button onclick="movePipeline(${i},-1)" ${i === 0 ? 'disabled' : ''}>▲</button>
+            <button onclick="movePipeline(${i},1)" ${i === editPipeline.length - 1 ? 'disabled' : ''}>▼</button>
+          </span>
+          <span>${s}</span>
+          <button class="remove" onclick="removePipeline(${i})">×</button>
+        </div>${arrow}`;
+      }).join("");
+    }
+
+    function movePipeline(idx, dir) {
+      const target = idx + dir;
+      if (target < 0 || target >= editPipeline.length) return;
+      [editPipeline[idx], editPipeline[target]] = [editPipeline[target], editPipeline[idx]];
+      renderSkillChips();
+      renderPipelineBuilder();
+    }
+
+    function removePipeline(idx) {
+      editPipeline.splice(idx, 1);
+      renderSkillChips();
+      renderPipelineBuilder();
+    }
+
+    async function saveConfig() {
+      const projectPath = document.getElementById("project-path").value.trim();
+      await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectPath, pipeline: editPipeline }),
+      });
+      configOpen = false;
+      document.getElementById("config-panel").classList.remove("open");
+      refresh();
+    }
+
+    // --- Main ---
+    async function refresh() {
+      // Save scroll positions BEFORE re-render destroys the DOM
+      if (openLogId) {
+        const logEl = document.getElementById(`log-${openLogId}`);
+        if (logEl) {
+          savedLogScroll.nearBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 50;
+          savedLogScroll.top = logEl.scrollTop;
+        }
+      }
+      if (openPlanId) {
+        const planEl = document.getElementById(`plan-${openPlanId}`);
+        if (planEl) savedPlanScroll.top = planEl.scrollTop;
+      }
+
+      const res = await fetch("/api/tickets");
+      const data = await res.json();
+      pipeline = data.pipeline;
+      renderPipeline();
+      renderTickets(data.tickets);
+      if (openLogId) refreshLog(openLogId);
+
+      // Restore plan scroll
+      if (openPlanId) {
+        const planEl = document.getElementById(`plan-${openPlanId}`);
+        if (planEl) planEl.scrollTop = savedPlanScroll.top;
+      }
+    }
+
+    function renderPipeline() {
+      const el = document.getElementById("pipeline");
+      if (!pipeline.length) {
+        el.innerHTML = '<span style="color:#aaa;font-size:13px">Settings에서 파이프라인을 설정하세요</span>';
+        document.getElementById("add-btn").disabled = true;
+        return;
+      }
+      document.getElementById("add-btn").disabled = false;
+      el.innerHTML = pipeline
+        .map((s, i) => `<span>${s}</span>${i < pipeline.length - 1 ? '<span class="arrow">→</span>' : ""}`)
+        .join("");
+    }
+
+    function renderTickets(tickets) {
+      const el = document.getElementById("ticket-list");
+      if (tickets.length === 0) {
+        el.innerHTML = '<p class="empty">티켓을 추가하면 자동으로 파이프라인이 시작됩니다.</p>';
+        return;
+      }
+      el.innerHTML = tickets.map((t) => {
+        const badgeMap = {
+          running: { cls: "badge-running", text: "실행 중" },
+          review: { cls: "badge-review", text: "확인 필요" },
+          done: { cls: "badge-done", text: "완료" },
+          "awaiting-action": { cls: "badge-awaiting", text: "액션 선택" },
+        };
+        const badge = badgeMap[t.status] || { cls: "", text: "" };
+
+        const bars = pipeline.map((_, i) => {
+          let cls = "";
+          if (i < t.currentStep || t.status === "done") cls = "done";
+          else if (i === t.currentStep && t.status === "running") cls = "active";
+          else if (i === t.currentStep && t.status === "review") cls = "review";
+          else if (i === t.currentStep && t.status === "awaiting-action") cls = "awaiting";
+          return `<div class="progress-bar ${cls}"></div>`;
+        }).join("");
+
+        const currentSkill = pipeline[t.currentStep] || "";
+        const skillText = t.status === "done"
+          ? "모든 스킬 완료"
+          : `현재: /${currentSkill}${t.status === "running" ? " ..." : ""}`;
+
+        // Buttons
+        const logBtn = `<button class="btn btn-log" onclick="toggleLog('${t.id}')">${openLogId === t.id ? "로그 닫기" : "로그 보기"}</button>`;
+        const planBtn = t.planFile
+          ? `<button class="btn btn-plan" onclick="togglePlan('${t.id}')">Plan ${openPlanId === t.id ? "닫기" : "보기"}</button>`
+          : "";
+
+        let actionBtns = "";
+        if (t.status === "awaiting-action" && currentSkill === "augmented-coding") {
+          actionBtns = `
+            <div class="action-group">
+              <button class="btn btn-go" onclick="runAction('${t.id}','go')">go</button>
+              <button class="btn btn-commit" onclick="runAction('${t.id}','commit')">commit</button>
+              <button class="btn btn-refactor" onclick="runAction('${t.id}','refactor')">refactor</button>
+              <span class="action-sep">|</span>
+              <button class="btn btn-advance" onclick="nextStep('${t.id}')">→ /${pipeline[t.currentStep + 1] || '완료'} 진행</button>
+            </div>`;
+        } else if (t.status === "review" && t.currentStep < pipeline.length - 1) {
+          actionBtns = `<button class="btn btn-next" onclick="nextStep('${t.id}')">확인 → /${pipeline[t.currentStep + 1]}</button>`;
+        } else if (t.status === "review" && t.currentStep === pipeline.length - 1) {
+          actionBtns = `<button class="btn btn-done" onclick="nextStep('${t.id}')">완료 처리</button>`;
+        }
+
+        const logBox = openLogId === t.id ? `<div class="log-box" id="log-${t.id}">loading...</div>` : "";
+        const planBox = openPlanId === t.id && t.planContent ? `<div class="plan-box" id="plan-${t.id}">${renderMarkdown(t.planContent)}</div>` : "";
+
+        const branchInfo = t.branchName
+          ? `<span style="font-size:11px;color:#9333ea;font-family:monospace;margin-left:8px">${t.branchName}</span>`
+          : "";
+        const deleteBtn = t.status === "done"
+          ? `<button class="btn" style="background:#fef2f2;color:#ef4444;font-size:11px;margin-left:auto" onclick="deleteTicket('${t.id}')">삭제</button>`
+          : "";
+
+        return `
+          <div class="ticket">
+            <div class="ticket-header">
+              <div><span class="ticket-id">${t.jiraTicket}</span><span class="badge ${badge.cls}">${badge.text}</span>${branchInfo}</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:12px;color:#aaa">${t.currentStep + 1}/${pipeline.length}</span>
+                ${deleteBtn}
+              </div>
+            </div>
+            <div class="progress">${bars}</div>
+            <div class="current-skill">${skillText}</div>
+            <div class="actions">${logBtn}${planBtn}${actionBtns}</div>
+            ${planBox}
+            ${logBox}
+          </div>`;
+      }).join("");
+
+      if (openLogId) refreshLog(openLogId);
+    }
+
+    // --- Actions ---
+    async function addTicket() {
+      const input = document.getElementById("ticket-input");
+      const val = input.value.trim();
+      if (!val) return;
+      await fetch("/api/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jiraTicket: val }),
+      });
+      input.value = "";
+      refresh();
+    }
+
+    async function nextStep(id) {
+      await fetch(`/api/tickets/${id}/next`, { method: "POST" });
+      refresh();
+    }
+
+    async function deleteTicket(id) {
+      if (!confirm("이 티켓을 삭제하고 worktree를 정리할까요?")) return;
+      await fetch(`/api/tickets/${id}`, { method: "DELETE" });
+      refresh();
+    }
+
+    async function runAction(id, action) {
+      // Find ticket to get planFile
+      const res = await fetch(`/api/tickets/${id}/log`);
+      const data = await res.json();
+      await fetch(`/api/tickets/${id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, planFile: data.planFile }),
+      });
+      refresh();
+    }
+
+    // --- Log ---
+    function toggleLog(id) {
+      openLogId = openLogId === id ? null : id;
+      refresh();
+    }
+
+    async function refreshLog(id) {
+      const res = await fetch(`/api/tickets/${id}/log`);
+      const data = await res.json();
+      const el = document.getElementById(`log-${id}`);
+      if (el) {
+        el.textContent = data.log || "waiting...";
+        // Use saved scroll state (captured before DOM re-render)
+        if (savedLogScroll.nearBottom) {
+          el.scrollTop = el.scrollHeight;
+        } else {
+          el.scrollTop = savedLogScroll.top;
+        }
+      }
+    }
+
+    // --- Plan ---
+    function togglePlan(id) {
+      openPlanId = openPlanId === id ? null : id;
+      refresh();
+    }
+
+    function renderMarkdown(text) {
+      if (!text) return "";
+      return text
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^---$/gm, '<hr>')
+        .replace(/- \[x\] (.+)/g, '<div class="check-done">&#9745; $1</div>')
+        .replace(/- \[ \] (.+)/g, '<div class="check-todo">&#9744; $1</div>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/\n/g, '<br>');
+    }
+
+    // --- Init ---
+    document.getElementById("ticket-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addTicket();
+    });
+
+    // Check if config exists, auto-open settings if not
+    fetch("/api/config").then(r => r.json()).then(data => {
+      if (!data.projectPath || !data.pipeline.length) {
+        configOpen = true;
+        document.getElementById("config-panel").classList.add("open");
+        loadConfig();
+      }
+    });
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

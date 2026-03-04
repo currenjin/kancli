@@ -1,0 +1,12 @@
+{
+  "name": "devflow",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "DevFlow - Claude Code skill pipeline runner"
+}
