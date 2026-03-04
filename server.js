@@ -3,8 +3,9 @@ const { spawn, execSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const PORT = 3000;
-const CONFIG_FILE = path.join(__dirname, "devflow-config.json");
+const PORT = Number(process.env.PORT || 3000);
+const CONFIG_FILE = process.env.DEVFLOW_CONFIG_FILE || path.join(__dirname, "devflow-config.json");
+const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const WORKTREE_DIR = ".devflow-worktrees";
 
 // Tools to auto-approve per skill type
@@ -28,6 +29,7 @@ function loadConfig() {
 }
 
 function saveConfig() {
+  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
@@ -188,7 +190,7 @@ function runStep(id, options = {}) {
   const cwd = ticket.worktreePath;
 
   const proc = spawn(
-    "claude",
+    CLAUDE_BIN,
     ["-p", "--verbose", "--output-format", "stream-json", "--permission-mode", "bypassPermissions"],
     { cwd, env, stdio: ["pipe", "pipe", "pipe"] }
   );
