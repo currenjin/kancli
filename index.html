@@ -1,455 +1,182 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DevFlow</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #f8f9fa; color: #333; }
-    .container { max-width: 980px; margin: 0 auto; padding: 24px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    h1 { font-size: 22px; }
-    .btn-config { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; color: #666; }
-    .btn-config:hover { background: #f3f4f6; }
-
-    .config-panel { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; display: none; }
-    .config-panel.open { display: block; }
-    .config-section { margin-bottom: 14px; }
-    .config-section:last-child { margin-bottom: 0; }
-    .config-label { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
-    .config-row { display: flex; gap: 8px; }
-    .config-row input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; }
-    .config-row button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
-    .btn-scan { background: #e5e7eb; color: #333; }
-    .btn-scan:hover { background: #d1d5db; }
-    .btn-save { background: #2563eb; color: white; }
-    .btn-save:hover { background: #1d4ed8; }
-    .skill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .skill-chip { padding: 4px 10px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid #ddd; background: white; }
-    .skill-chip:hover { background: #eff6ff; border-color: #93c5fd; }
-    .skill-chip.in-pipeline { background: #dbeafe; border-color: #93c5fd; color: #2563eb; }
-
-    .pipeline-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 8px; min-height: 32px; }
-    .pipeline-item { display: flex; align-items: center; gap: 4px; background: #dbeafe; border: 1px solid #93c5fd; border-radius: 6px; padding: 4px 8px; font-size: 12px; color: #2563eb; }
-    .pipeline-item .arrows { display: flex; flex-direction: column; line-height: 1; }
-    .pipeline-item .arrows button { background: none; border: none; cursor: pointer; font-size: 9px; padding: 0 2px; color: #2563eb; }
-    .pipeline-item .remove { background: none; border: none; cursor: pointer; color: #ef4444; font-size: 14px; line-height: 1; margin-left: 2px; }
-    .pipeline-arrow { color: #ccc; font-size: 12px; }
-
-    .pipeline { display: flex; gap: 6px; margin-bottom: 20px; font-size: 13px; flex-wrap: wrap; }
-    .pipeline span { background: #e5e7eb; padding: 4px 10px; border-radius: 6px; }
-    .pipeline .arrow { background: none; color: #ccc; }
-
-    .add-form { display: flex; gap: 8px; margin-bottom: 24px; }
-    .add-form input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; font-family: monospace; }
-    .add-form button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
-    .add-form button:disabled { background: #94a3b8; cursor: not-allowed; }
-
-    .ticket { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 10px; }
-    .ticket-header { display: flex; align-items: center; justify-content: space-between; }
-    .ticket-id { font-family: monospace; font-weight: 700; font-size: 16px; }
-    .badge { font-size: 12px; padding: 3px 8px; border-radius: 20px; font-weight: 600; margin-left: 8px; }
-    .badge-running { background: #dbeafe; color: #2563eb; }
-    .badge-review { background: #fef3c7; color: #d97706; }
-    .badge-done { background: #dcfce7; color: #16a34a; }
-    .badge-awaiting { background: #f3e8ff; color: #9333ea; }
-    .badge-queued { background: #e2e8f0; color: #475569; }
-    .badge-blocked { background: #fee2e2; color: #b91c1c; }
-    .badge-halted { background: #fef3c7; color: #92400e; }
-
-    .progress { display: flex; gap: 4px; margin: 10px 0; }
-    .progress-bar { flex: 1; height: 6px; border-radius: 3px; background: #f3f4f6; }
-    .progress-bar.done { background: #bbf7d0; }
-    .progress-bar.active { background: #93c5fd; }
-    .progress-bar.review { background: #fde68a; }
-    .progress-bar.awaiting { background: #d8b4fe; }
-    .progress-bar.blocked { background: #fca5a5; }
-
-    .current-skill { font-size: 13px; color: #666; margin-bottom: 8px; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
-    .btn-log { background: #f3f4f6; }
-    .btn-next { background: #2563eb; color: white; font-weight: 600; }
-    .btn-stop { background: #fef2f2; color: #ef4444; border: 1px solid #fca5a5; font-weight: 600; }
-    .btn-delete { background: #fef2f2; color: #ef4444; font-size: 11px; }
-    .btn-action { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
-    .btn-action:hover { background: #e0e7ff; }
-
-    .pending-box { margin-top: 10px; border: 1px solid #e9d5ff; background: #faf5ff; border-radius: 8px; padding: 12px; }
-    .pending-title { font-size: 12px; color: #7e22ce; font-weight: 700; margin-bottom: 4px; }
-    .pending-prompt { font-size: 13px; margin-bottom: 8px; color: #4c1d95; }
-    .pending-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-
-    .artifact-box { margin-top: 10px; border: 1px solid #e5e7eb; background: #fcfcfd; border-radius: 8px; padding: 10px; }
-    .artifact-title { font-size: 12px; color: #374151; font-weight: 700; margin-bottom: 6px; }
-    .artifact-list { list-style: none; font-size: 12px; color: #4b5563; }
-    .artifact-list li { padding: 3px 0; font-family: Menlo, Monaco, monospace; }
-
-    .log-box { margin-top: 10px; background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.6; max-height: 350px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: Menlo, Monaco, monospace; }
-    .plan-box { margin-top: 10px; background: #fefefe; border: 1px solid #e5e7eb; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.7; max-height: 500px; overflow: auto; }
-
-    .empty { color: #aaa; text-align: center; padding: 40px; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f8fafc; color: #1f2937; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .row { display: flex; gap: 8px; }
+    input, button { padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    button { cursor: pointer; background: white; }
+    .primary { background: #2563eb; color: white; border-color: #2563eb; }
+    .card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+    .ticket { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+    .muted { color: #64748b; font-size: 12px; }
+    .badge { font-size: 11px; border-radius: 999px; padding: 2px 8px; background: #e2e8f0; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .log { margin-top: 8px; max-height: 180px; overflow: auto; background: #0f172a; color: #e2e8f0; padding: 8px; border-radius: 6px; font: 11px/1.5 monospace; white-space: pre-wrap; }
+    .pending { background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 6px; padding: 8px; margin-top: 8px; }
+    .artifact { font: 11px monospace; margin-top: 6px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>DevFlow</h1>
-      <button class="btn-config" onclick="toggleConfig()">Settings</button>
+    <h2>DevFlow Dashboard</h2>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="row">
+        <input id="project-path" placeholder="/Users/.../project" style="flex:1"/>
+        <button onclick="scanSkills()">스캔</button>
+        <button class="primary" onclick="saveConfig()">설정 저장</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Pipeline: <span id="pipeline-text">-</span></div>
+      <div class="row" style="margin-top:8px">
+        <input id="ticket-input" placeholder="RP-5316" style="flex:1"/>
+        <button class="primary" onclick="addTicket()">티켓 추가</button>
+      </div>
+      <div id="skills" class="muted" style="margin-top:8px"></div>
     </div>
 
-    <div class="config-panel" id="config-panel">
-      <div class="config-section">
-        <div class="config-label">프로젝트 경로</div>
-        <div class="config-row">
-          <input id="project-path" placeholder="/Users/.../project" />
-          <button class="btn-scan" onclick="scanSkills()">스캔</button>
-        </div>
-      </div>
-      <div class="config-section">
-        <div class="config-label">사용 가능한 스킬</div>
-        <div class="skill-chips" id="skill-chips"></div>
-      </div>
-      <div class="config-section">
-        <div class="config-label">파이프라인 순서</div>
-        <div class="pipeline-list" id="pipeline-builder"></div>
-      </div>
-      <div style="text-align: right; margin-top: 10px;"><button class="btn-save" onclick="saveConfig()">저장</button></div>
+    <div class="grid">
+      <div class="card"><b>Queue</b><div id="col-queued"></div></div>
+      <div class="card"><b>Running</b><div id="col-running"></div></div>
+      <div class="card"><b>Review</b><div id="col-review"></div></div>
+      <div class="card"><b>Blocked/Halted</b><div id="col-blocked"></div></div>
     </div>
-
-    <div class="pipeline" id="pipeline"></div>
-
-    <div class="add-form">
-      <input id="ticket-input" placeholder="RP-5316" />
-      <button id="add-btn" onclick="addTicket()">추가</button>
-    </div>
-
-    <div id="ticket-list"></div>
   </div>
 
-  <script>
-    let pipeline = [];
-    let availableSkills = [];
-    let editPipeline = [];
-    let configOpen = false;
-    let openLogId = null;
-    let openPlanId = null;
-    let savedLogScroll = { top: 0, nearBottom: true };
+<script>
+let state = { pipeline: [], tickets: [] };
+let availableSkills = [];
+let editPipeline = [];
+let openLogs = new Set();
 
-    function toggleConfig() {
-      configOpen = !configOpen;
-      document.getElementById("config-panel").classList.toggle("open", configOpen);
-      if (configOpen) loadConfig();
-    }
+function byStatus(t) {
+  if (t.status === 'queued') return 'queued';
+  if (t.status === 'running') return 'running';
+  if (t.status === 'review' || t.status === 'done' || t.status === 'awaiting_input') return 'review';
+  return 'blocked';
+}
 
-    async function loadConfig() {
-      const res = await fetch("/api/config");
-      const data = await res.json();
-      document.getElementById("project-path").value = data.projectPath || "";
-      availableSkills = data.availableSkills || [];
-      editPipeline = [...(data.pipeline || [])];
-      renderSkillChips();
-      renderPipelineBuilder();
-    }
+function ticketHtml(t) {
+  const actions = [];
+  actions.push(`<button onclick="toggleLog('${t.id}')">log</button>`);
+  if (t.status === 'running') actions.push(`<button onclick="stopTicket('${t.id}')">stop</button>`);
+  if (['review','awaiting_input','blocked','halted'].includes(t.status)) actions.push(`<button onclick="nextStep('${t.id}')">next</button>`);
+  actions.push(`<button onclick="deleteTicket('${t.id}')">delete</button>`);
 
-    async function scanSkills() {
-      const projectPath = document.getElementById("project-path").value.trim();
-      if (!projectPath) return;
-      const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(projectPath)}`);
-      const data = await res.json();
-      availableSkills = data.skills || [];
-      renderSkillChips();
-    }
+  const pending = t.pendingAction ? `<div class='pending'><div class='muted'>${esc(t.pendingAction.prompt)}</div>
+    ${(t.pendingAction.options||[]).map(o=>`<button onclick="resolveAction('${t.id}','${o.id}')">${esc(o.label||o.id)}</button>`).join(' ')}</div>` : '';
 
-    function renderSkillChips() {
-      const el = document.getElementById("skill-chips");
-      if (availableSkills.length === 0) {
-        el.innerHTML = '<span style="color:#aaa;font-size:12px">프로젝트 경로를 입력하고 스캔하세요</span>';
-        return;
-      }
-      el.innerHTML = availableSkills.map(s =>
-        `<span class="skill-chip ${editPipeline.includes(s) ? 'in-pipeline' : ''}" onclick="toggleSkillInPipeline('${s}')">${s}</span>`
-      ).join("");
-    }
+  const artifacts = (t.artifacts||[]).slice(-3).map(a=>`<div class='artifact'>[${esc(a.type)}] ${esc(a.name)}</div>`).join('');
 
-    function toggleSkillInPipeline(skill) {
-      const idx = editPipeline.indexOf(skill);
-      if (idx >= 0) editPipeline.splice(idx, 1);
-      else editPipeline.push(skill);
-      renderSkillChips();
-      renderPipelineBuilder();
-    }
+  const summary = t.summary || {};
+  const detail = `<div class='muted'>latest commit: ${esc(summary.latestCommit||'-')}</div>
+    <div class='muted'>issue: ${esc(summary.issue||'-')}</div>
+    <div class='muted'>next action: ${esc(summary.nextAction||'-')}</div>`;
 
-    function renderPipelineBuilder() {
-      const el = document.getElementById("pipeline-builder");
-      if (editPipeline.length === 0) {
-        el.innerHTML = '<span style="color:#aaa;font-size:12px">스킬을 클릭하여 추가하세요</span>';
-        return;
-      }
-      el.innerHTML = editPipeline.map((s, i) => {
-        const arrow = i < editPipeline.length - 1 ? '<span class="pipeline-arrow">→</span>' : '';
-        return `<div class="pipeline-item">
-          <span class="arrows">
-            <button onclick="movePipeline(${i},-1)" ${i === 0 ? 'disabled' : ''}>▲</button>
-            <button onclick="movePipeline(${i},1)" ${i === editPipeline.length - 1 ? 'disabled' : ''}>▼</button>
-          </span>
-          <span>${s}</span>
-          <button class="remove" onclick="removePipeline(${i})">×</button>
-        </div>${arrow}`;
-      }).join("");
-    }
+  const log = openLogs.has(t.id) ? `<div class='log'>${esc(t.log || '')}</div>` : '';
+  return `<div class='ticket'>
+    <div><b>${esc(t.jiraTicket)}</b> <span class='badge'>${esc(t.status)}</span></div>
+    <div class='muted'>step ${t.currentStep + 1}/${Math.max(state.pipeline.length,1)} | ${esc(t.branchName || '-')}</div>
+    ${detail}
+    <div class='actions'>${actions.join('')}</div>
+    ${pending}
+    ${artifacts}
+    ${log}
+  </div>`;
+}
 
-    function movePipeline(idx, dir) {
-      const target = idx + dir;
-      if (target < 0 || target >= editPipeline.length) return;
-      [editPipeline[idx], editPipeline[target]] = [editPipeline[target], editPipeline[idx]];
-      renderSkillChips();
-      renderPipelineBuilder();
-    }
+function render() {
+  document.getElementById('pipeline-text').textContent = state.pipeline.length ? state.pipeline.join(' → ') : '-';
+  const cols = { queued: [], running: [], review: [], blocked: [] };
+  for (const t of state.tickets) cols[byStatus(t)].push(t);
+  for (const key of Object.keys(cols)) {
+    document.getElementById(`col-${key}`).innerHTML = cols[key].map(ticketHtml).join('') || `<div class='muted' style='margin-top:8px'>비어 있음</div>`;
+  }
+}
 
-    function removePipeline(idx) {
-      editPipeline.splice(idx, 1);
-      renderSkillChips();
-      renderPipelineBuilder();
-    }
+async function loadConfig() {
+  const res = await fetch('/api/config');
+  const data = await res.json();
+  document.getElementById('project-path').value = data.projectPath || '';
+  availableSkills = data.availableSkills || [];
+  editPipeline = [...(data.pipeline || [])];
+  document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${s}')">${s}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
+}
 
-    async function saveConfig() {
-      const projectPath = document.getElementById("project-path").value.trim();
-      await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectPath, pipeline: editPipeline }),
-      });
-      configOpen = false;
-      document.getElementById("config-panel").classList.remove("open");
-      refresh();
-    }
+function toggleSkill(skill) {
+  const i = editPipeline.indexOf(skill);
+  if (i >= 0) editPipeline.splice(i, 1); else editPipeline.push(skill);
+  loadConfigView();
+}
 
-    async function refresh() {
-      if (openLogId) {
-        const logEl = document.getElementById(`log-${openLogId}`);
-        if (logEl) {
-          savedLogScroll.nearBottom = (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 50;
-          savedLogScroll.top = logEl.scrollTop;
-        }
-      }
+function loadConfigView() {
+  document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${s}')">${s}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
+}
 
-      const res = await fetch("/api/tickets");
-      const data = await res.json();
-      pipeline = data.pipeline || [];
-      renderPipeline();
-      renderTickets(data.tickets || []);
-      if (openLogId) refreshLog(openLogId);
-    }
+async function scanSkills() {
+  const p = document.getElementById('project-path').value.trim();
+  const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(p)}`);
+  const data = await res.json();
+  availableSkills = data.skills || [];
+  loadConfigView();
+}
 
-    function renderPipeline() {
-      const el = document.getElementById("pipeline");
-      if (!pipeline.length) {
-        el.innerHTML = '<span style="color:#aaa;font-size:13px">Settings에서 파이프라인을 설정하세요</span>';
-        document.getElementById("add-btn").disabled = true;
-        return;
-      }
-      document.getElementById("add-btn").disabled = false;
-      el.innerHTML = pipeline.map((s, i) => `<span>${s}</span>${i < pipeline.length - 1 ? '<span class="arrow">→</span>' : ''}`).join('');
-    }
+async function saveConfig() {
+  const projectPath = document.getElementById('project-path').value.trim();
+  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projectPath, pipeline: editPipeline }) });
+  refresh();
+}
 
-    function statusMeta(status) {
-      const map = {
-        queued: { cls: 'badge-queued', text: '대기' },
-        running: { cls: 'badge-running', text: '실행 중' },
-        awaiting_input: { cls: 'badge-awaiting', text: '입력 대기' },
-        review: { cls: 'badge-review', text: '확인 필요' },
-        blocked: { cls: 'badge-blocked', text: '차단됨' },
-        done: { cls: 'badge-done', text: '완료' },
-        halted: { cls: 'badge-halted', text: '중지됨' },
-        // backward compatibility:
-        'awaiting-action': { cls: 'badge-awaiting', text: '입력 대기' },
-        'review-plan': { cls: 'badge-awaiting', text: '입력 대기' },
-      };
-      return map[status] || { cls: '', text: status };
-    }
+async function refresh() {
+  const res = await fetch('/api/tickets');
+  state = await res.json();
+  render();
+}
 
-    function renderTickets(tickets) {
-      const el = document.getElementById("ticket-list");
-      if (!tickets.length) {
-        el.innerHTML = '<p class="empty">티켓을 추가하면 자동으로 파이프라인이 시작됩니다.</p>';
-        return;
-      }
+async function addTicket() {
+  const jiraTicket = document.getElementById('ticket-input').value.trim();
+  if (!jiraTicket) return;
+  await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jiraTicket }) });
+  document.getElementById('ticket-input').value = '';
+  refresh();
+}
 
-      el.innerHTML = tickets.map((t) => {
-        const badge = statusMeta(t.status);
-        const bars = pipeline.map((_, i) => {
-          let cls = '';
-          if (i < t.currentStep || t.status === 'done') cls = 'done';
-          else if (i === t.currentStep && t.status === 'running') cls = 'active';
-          else if (i === t.currentStep && (t.status === 'review' || t.status === 'halted')) cls = 'review';
-          else if (i === t.currentStep && (t.status === 'awaiting_input' || t.status === 'awaiting-action')) cls = 'awaiting';
-          else if (i === t.currentStep && t.status === 'blocked') cls = 'blocked';
-          return `<div class="progress-bar ${cls}"></div>`;
-        }).join('');
+async function resolveAction(id, actionId) {
+  await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })});
+  refresh();
+}
+async function nextStep(id) { await fetch(`/api/tickets/${id}/next`, { method:'POST' }); refresh(); }
+async function stopTicket(id) { await fetch(`/api/tickets/${id}/stop`, { method:'POST' }); refresh(); }
+async function deleteTicket(id) { await fetch(`/api/tickets/${id}`, { method:'DELETE' }); refresh(); }
+function toggleLog(id) { if (openLogs.has(id)) openLogs.delete(id); else openLogs.add(id); render(); }
+function esc(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
 
-        const currentSkill = pipeline[t.currentStep] || '';
-        const skillText = t.status === 'done' ? '모든 스킬 완료' : `현재: /${currentSkill}`;
-        const logBtn = `<button class="btn btn-log" onclick="toggleLog('${t.id}')">${openLogId === t.id ? '로그 닫기' : '로그 보기'}</button>`;
-        const planBtn = t.planFile ? `<button class="btn btn-log" onclick="togglePlan('${t.id}')">${openPlanId === t.id ? 'Plan 닫기' : 'Plan 보기'}</button>` : '';
-        const stopBtn = t.status === 'running' ? `<button class="btn btn-stop" onclick="stopTicket('${t.id}')">중지</button>` : '';
-        const nextBtn = (t.status === 'review' && t.currentStep < pipeline.length - 1)
-          ? `<button class="btn btn-next" onclick="nextStep('${t.id}')">확인 → /${pipeline[t.currentStep + 1]}</button>`
-          : ((t.status === 'review' && t.currentStep === pipeline.length - 1)
-            ? `<button class="btn btn-next" onclick="nextStep('${t.id}')">완료 처리</button>` : '');
-        const deleteBtn = t.status !== 'running' ? `<button class="btn btn-delete" style="margin-left:auto" onclick="deleteTicket('${t.id}')">삭제</button>` : '';
+function connectSSE() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('ticket', (e) => {
+    const incoming = JSON.parse(e.data);
+    const idx = state.tickets.findIndex(t => t.id === incoming.id);
+    if (idx >= 0) state.tickets[idx] = incoming; else state.tickets.unshift(incoming);
+    render();
+  });
+  es.addEventListener('ticket_deleted', (e) => {
+    const { id } = JSON.parse(e.data);
+    state.tickets = state.tickets.filter(t => t.id !== id);
+    render();
+  });
+  es.onerror = () => { setTimeout(connectSSE, 2000); };
+}
 
-        const pendingBox = renderPendingAction(t);
-        const artifactBox = renderArtifacts(t);
-        const showPlan = (openPlanId === t.id) && t.planContent;
-        const planBox = showPlan ? `<div class="plan-box" id="plan-${t.id}">${renderMarkdown(t.planContent)}</div>` : '';
-        const logBox = openLogId === t.id ? `<div class="log-box" id="log-${t.id}">loading...</div>` : '';
-
-        return `
-          <div class="ticket">
-            <div class="ticket-header">
-              <div><span class="ticket-id">${t.jiraTicket}</span><span class="badge ${badge.cls}">${badge.text}</span><span style="font-size:11px;color:#9333ea;font-family:monospace;margin-left:8px">${t.branchName || ''}</span></div>
-              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:#aaa">${t.currentStep + 1}/${pipeline.length || 1}</span>${deleteBtn}</div>
-            </div>
-            <div class="progress">${bars}</div>
-            <div class="current-skill">${skillText}</div>
-            <div class="actions">${logBtn}${planBtn}${stopBtn}${nextBtn}</div>
-            ${pendingBox}
-            ${artifactBox}
-            ${planBox}
-            ${logBox}
-          </div>
-        `;
-      }).join('');
-
-      if (openLogId) refreshLog(openLogId);
-    }
-
-    function renderPendingAction(ticket) {
-      const pa = ticket.pendingAction;
-      if (!pa || !(ticket.status === 'awaiting_input' || ticket.status === 'blocked' || ticket.status === 'awaiting-action' || ticket.status === 'review-plan')) return '';
-      const options = (pa.options || []).map(o =>
-        `<button class="btn btn-action" onclick="resolveAction('${ticket.id}','${o.id}')">${escapeHtml(o.label || o.id)}</button>`
-      ).join('');
-      return `<div class="pending-box">
-        <div class="pending-title">입력 요청 (${escapeHtml(pa.type || 'selection')})</div>
-        <div class="pending-prompt">${escapeHtml(pa.prompt || '사용자 입력이 필요합니다.')}</div>
-        <div class="pending-actions">${options || '<span style="font-size:12px;color:#666">선택 가능한 옵션이 없습니다.</span>'}</div>
-      </div>`;
-    }
-
-    function renderArtifacts(ticket) {
-      const items = ticket.artifacts || [];
-      if (!items.length) return '';
-      const latest = items.slice(-8).reverse();
-      return `<div class="artifact-box">
-        <div class="artifact-title">Artifacts (최신 ${latest.length}개)</div>
-        <ul class="artifact-list">
-          ${latest.map(a => `<li>[${escapeHtml(a.type || 'artifact')}] ${escapeHtml(a.name || a.path || 'unnamed')}</li>`).join('')}
-        </ul>
-      </div>`;
-    }
-
-    async function addTicket() {
-      const input = document.getElementById('ticket-input');
-      const jiraTicket = input.value.trim();
-      if (!jiraTicket) return;
-      await fetch('/api/tickets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jiraTicket }),
-      });
-      input.value = '';
-      refresh();
-    }
-
-    async function nextStep(id) {
-      await fetch(`/api/tickets/${id}/next`, { method: 'POST' });
-      refresh();
-    }
-
-    async function stopTicket(id) {
-      await fetch(`/api/tickets/${id}/stop`, { method: 'POST' });
-      refresh();
-    }
-
-    async function deleteTicket(id) {
-      if (!confirm('이 티켓을 삭제하고 worktree를 정리할까요?')) return;
-      await fetch(`/api/tickets/${id}`, { method: 'DELETE' });
-      if (openLogId === id) openLogId = null;
-      if (openPlanId === id) openPlanId = null;
-      refresh();
-    }
-
-    async function resolveAction(id, actionId) {
-      await fetch(`/api/tickets/${id}/actions/resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actionId }),
-      });
-      refresh();
-    }
-
-    function toggleLog(id) {
-      openLogId = openLogId === id ? null : id;
-      refresh();
-    }
-
-    async function refreshLog(id) {
-      const res = await fetch(`/api/tickets/${id}/log`);
-      const data = await res.json();
-      const el = document.getElementById(`log-${id}`);
-      if (!el) return;
-      el.textContent = data.log || 'waiting...';
-      if (savedLogScroll.nearBottom) el.scrollTop = el.scrollHeight;
-      else el.scrollTop = savedLogScroll.top;
-    }
-
-    function togglePlan(id) {
-      openPlanId = openPlanId === id ? null : id;
-      refresh();
-    }
-
-    function renderMarkdown(text) {
-      if (!text) return '';
-      return text
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-        .replace(/^---$/gm, '<hr>')
-        .replace(/- \[x\] (.+)/g, '<div style="color:#16a34a">&#9745; $1</div>')
-        .replace(/- \[ \] (.+)/g, '<div style="color:#999">&#9744; $1</div>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`(.+?)`/g, '<code>$1</code>')
-        .replace(/\n\n/g, '<br><br>')
-        .replace(/\n/g, '<br>');
-    }
-
-    function escapeHtml(s) {
-      return String(s || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
-    document.getElementById('ticket-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') addTicket();
-    });
-
-    fetch('/api/config').then(r => r.json()).then(data => {
-      if (!data.projectPath || !data.pipeline.length) {
-        configOpen = true;
-        document.getElementById('config-panel').classList.add('open');
-        loadConfig();
-      }
-    });
-
-    refresh();
-    setInterval(refresh, 2000);
-  </script>
+loadConfig();
+refresh();
+connectSSE();
+setInterval(refresh, 8000);
+</script>
 </body>
 </html>
