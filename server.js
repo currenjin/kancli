@@ -11,6 +11,7 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const WORKTREE_DIR = ".devflow-worktrees";
 const DEFAULT_ALLOWED_TOOLS = "Read,Write,Edit,Glob,Grep,Bash,Agent";
 const MAX_WORKERS = 3;
+const PENDING_ACTION_TTL_MS = Number(process.env.DEVFLOW_PENDING_ACTION_TTL_MS || 15 * 60 * 1000);
 
 const TASK_STATUS = {
   QUEUED: "queued",
@@ -51,6 +52,14 @@ function loadDb() {
     if (Array.isArray(parsed?.tickets)) {
       for (const t of parsed.tickets) {
         tickets[t.id] = { ...t, proc: null };
+        if (tickets[t.id].pendingAction && !tickets[t.id].pendingAction.createdAt) {
+          tickets[t.id].pendingAction = createPendingAction(
+            tickets[t.id].pendingAction.type,
+            tickets[t.id].pendingAction.prompt,
+            tickets[t.id].pendingAction.options,
+            tickets[t.id].pendingAction.metadata
+          );
+        }
         if (tickets[t.id].status === TASK_STATUS.RUNNING) tickets[t.id].status = TASK_STATUS.BLOCKED;
       }
     }
@@ -102,8 +111,34 @@ function removeWorktree(worktreePath) {
   } catch {}
 }
 
+function normalizePendingActionOption(option, index) {
+  if (!option || typeof option !== "object") return null;
+  const id = typeof option.id === "string" && option.id.trim() ? option.id.trim() : `option_${index + 1}`;
+  const label = typeof option.label === "string" && option.label.trim() ? option.label.trim() : id;
+  return { id, label, payload: option.payload && typeof option.payload === "object" ? option.payload : {} };
+}
+
 function createPendingAction(type, prompt, options = [], metadata = {}) {
-  return { type, prompt, options: Array.isArray(options) ? options : [], metadata };
+  const normalizedType = typeof type === "string" && type.trim() ? type.trim() : "selection";
+  const normalizedPrompt = typeof prompt === "string" && prompt.trim() ? prompt.trim() : "입력이 필요합니다.";
+  const normalizedOptions = Array.isArray(options)
+    ? options.map((option, idx) => normalizePendingActionOption(option, idx)).filter(Boolean)
+    : [];
+  const now = Date.now();
+  return {
+    type: normalizedType,
+    prompt: normalizedPrompt,
+    options: normalizedOptions,
+    metadata: metadata && typeof metadata === "object" ? metadata : {},
+    createdAt: now,
+    expiresAt: now + PENDING_ACTION_TTL_MS,
+  };
+}
+
+function isPendingActionExpired(pendingAction) {
+  if (!pendingAction) return false;
+  if (typeof pendingAction.expiresAt !== "number") return false;
+  return Date.now() > pendingAction.expiresAt;
 }
 
 function addArtifact(ticket, artifact) {
@@ -186,6 +221,21 @@ function applyRedline(ticket, input = {}) {
     ],
     { reason: result.reason, source: "redline" }
   );
+}
+
+function expireStalePendingAction(ticket) {
+  if (!ticket?.pendingAction || !isPendingActionExpired(ticket.pendingAction)) return false;
+  ticket.status = TASK_STATUS.BLOCKED;
+  ticket.pendingAction = createPendingAction(
+    "selection",
+    "이전 액션 요청이 만료되었습니다. 현재 단계를 다시 시도하거나 중단을 유지하세요.",
+    [
+      { id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } },
+      { id: "halt", label: "중단 유지", payload: { halt: true } }
+    ],
+    { reason: "stale_action_expired", source: "runtime_validation" }
+  );
+  return true;
 }
 
 function processText(ticket, text) {
@@ -379,15 +429,43 @@ function moveToNextStep(id) {
   return sanitizeTicket(t);
 }
 
+function validateActionResolutionPayload(payload, pending) {
+  if (!payload || typeof payload !== "object") return { error: "잘못된 요청 본문입니다." };
+  if (isPendingActionExpired(pending)) return { error: "요청된 액션이 만료되었습니다.", stale: true };
+
+  if (typeof payload.actionId !== "string" || !payload.actionId.trim()) {
+    return { error: "actionId는 필수 문자열입니다." };
+  }
+
+  const actionId = payload.actionId.trim();
+  const selected = pending.options?.find((o) => o.id === actionId) || null;
+  const builtin = ["retry", "halt", "advance"];
+
+  if (!selected && !builtin.includes(actionId)) {
+    return { error: `알 수 없는 actionId: ${actionId}` };
+  }
+
+  if (payload.metadata !== undefined && (typeof payload.metadata !== "object" || Array.isArray(payload.metadata))) {
+    return { error: "metadata는 객체여야 합니다." };
+  }
+
+  return { actionId, selected, metadata: payload.metadata || {}, input: typeof payload.input === "string" ? payload.input : "" };
+}
+
 function resolvePendingAction(ticket, payload = {}) {
   const pending = ticket.pendingAction;
   if (!pending) return { error: "대기 중인 액션이 없습니다.", code: 400 };
 
-  const selected = pending.options?.find((o) => o.id === payload.actionId) || null;
-  const mergedPayload = { ...(selected?.payload || {}), ...(payload.metadata || {}) };
+  const validated = validateActionResolutionPayload(payload, pending);
+  if (validated.error) {
+    if (validated.stale) expireStalePendingAction(ticket);
+    return { error: validated.error, code: 400 };
+  }
 
-  if (payload.actionId === "advance" || mergedPayload.advance) return moveToNextStep(ticket.id);
-  if (payload.actionId === "retry" || mergedPayload.rerunCurrentStep) {
+  const mergedPayload = { ...(validated.selected?.payload || {}), ...(validated.metadata || {}) };
+
+  if (validated.actionId === "advance" || mergedPayload.advance) return moveToNextStep(ticket.id);
+  if (validated.actionId === "retry" || mergedPayload.rerunCurrentStep) {
     ticket.status = TASK_STATUS.QUEUED;
     ticket.pendingAction = null;
     queue.push(ticket.id);
@@ -395,14 +473,14 @@ function resolvePendingAction(ticket, payload = {}) {
     schedule();
     return sanitizeTicket(ticket);
   }
-  if (payload.actionId === "halt" || mergedPayload.halt) {
+  if (validated.actionId === "halt" || mergedPayload.halt) {
     ticket.status = TASK_STATUS.HALTED;
     ticket.pendingAction = null;
     emitTicket(ticket);
     return sanitizeTicket(ticket);
   }
 
-  startStep(ticket.id, { resolution: { actionId: payload.actionId, input: payload.input, option: selected, metadata: payload.metadata } });
+  startStep(ticket.id, { resolution: { actionId: validated.actionId, input: validated.input, option: validated.selected, metadata: validated.metadata } });
   emitTicket(ticket);
   return sanitizeTicket(ticket);
 }
@@ -469,6 +547,9 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === "/api/tickets" && req.method === "GET") {
+    for (const ticket of Object.values(tickets)) {
+      if (expireStalePendingAction(ticket)) emitTicket(ticket);
+    }
     const list = Object.values(tickets).sort((a, b) => b.createdAt - a.createdAt).map(sanitizeTicket);
     return json(res, { pipeline: config.pipeline, queue, running: Array.from(running), tickets: list });
   }
@@ -503,10 +584,16 @@ const server = http.createServer((req, res) => {
     req.on("end", () => {
       const t = tickets[resolveActionMatch[1]];
       if (!t) return json(res, { error: "not found" }, 404);
+      if (expireStalePendingAction(t)) emitTicket(t);
       if (![TASK_STATUS.AWAITING_INPUT, TASK_STATUS.BLOCKED, TASK_STATUS.REVIEW, TASK_STATUS.HALTED].includes(t.status)) {
         return json(res, { error: "액션을 처리할 수 있는 상태가 아닙니다." }, 400);
       }
-      const payload = JSON.parse(body || "{}");
+      let payload;
+      try {
+        payload = JSON.parse(body || "{}");
+      } catch {
+        return json(res, { error: "JSON 파싱 실패" }, 400);
+      }
       const result = resolvePendingAction(t, payload);
       if (result?.error) return json(res, { error: result.error }, result.code || 400);
       json(res, result);
@@ -558,8 +645,17 @@ const server = http.createServer((req, res) => {
   res.end("Not found");
 });
 
-server.listen(PORT, () => {
-  console.log(`DevFlow running on http://localhost:${PORT}`);
-  console.log(`Project: ${config.projectPath || "(not set)"}`);
-  console.log(`Pipeline: ${config.pipeline.length ? config.pipeline.join(" → ") : "(not set)"}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`DevFlow running on http://localhost:${PORT}`);
+    console.log(`Project: ${config.projectPath || "(not set)"}`);
+    console.log(`Pipeline: ${config.pipeline.length ? config.pipeline.join(" → ") : "(not set)"}`);
+  });
+}
+
+module.exports = {
+  createPendingAction,
+  isPendingActionExpired,
+  validateActionResolutionPayload,
+  expireStalePendingAction,
+};

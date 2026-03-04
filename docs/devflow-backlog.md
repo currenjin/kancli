@@ -52,3 +52,38 @@
   - Queue/Running/Review/Blocked-Halted 컬럼 뷰
   - latest commit/issue/next-action 요약 노출
   - pending action, artifact, log 토글 표시
+
+## T008 (P0) Runtime-dynamic action 모델 강화
+- 상태: DONE
+- 결과:
+  - pendingAction 정규화/스키마 보정(`type/prompt/options/metadata`) 및 TTL(`createdAt/expiresAt`) 부여
+  - 액션 resolve payload 검증(`actionId` 필수, unknown action 차단, metadata 타입 검증, JSON parse 에러 처리)
+  - stale action 만료 감지 후 `stale_action_expired` 복구 액션으로 전환(retry/halt)
+  - `/api/tickets` 조회/resolve 경로에서 만료 액션 자동 정리
+  - 회귀 테스트 추가: `test/runtime-actions.test.js`
+
+## T009 (P0) 영속 저장 안정성 강화
+- 상태: TODO
+- 목표:
+  - atomic write + fsync 기반 저장 안정화
+  - DB corruption recovery + backup/restore
+  - startup integrity check/repair
+
+## T010 (P1) SSE 이벤트 모델 확장
+- 상태: TODO
+- 목표:
+  - task lifecycle + step event + redline event 분리 발행
+  - dashboard live-update 고도화(상태/요약/카운터)
+
+## T011 (P1) 동시성 스모크/회귀 테스트(3-worker)
+- 상태: TODO
+- 목표:
+  - 3 worker 병렬 실행 smoke test
+  - queue fairness + blocked/halted regression test
+
+## T012 (P2) 운영성 개선
+- 상태: TODO
+- 목표:
+  - `/health` endpoint
+  - 기본 metrics counter
+  - blocked/halted recovery action 가이드 강화
