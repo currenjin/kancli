@@ -488,6 +488,23 @@ function hasQuestionSignal(value) {
   return /\?$|\n[^\n]*\?\s*$/.test(text);
 }
 
+function inferSelectionFromTextPrompt(text) {
+  if (typeof text !== "string" || !text.trim()) return null;
+
+  // Generic command-like prompt: `go`, `commit`, `refactor`
+  const tickMatches = [...text.matchAll(/`([^`\n]{1,40})`/g)].map((m) => String(m[1] || "").trim()).filter(Boolean);
+  const unique = [...new Set(tickMatches)].filter((v) => /^[a-zA-Z0-9_-]{2,40}$/.test(v));
+  if (unique.length < 2) return null;
+
+  const options = unique.map((id) => ({ id, label: id }));
+  return createPendingAction(
+    "selection",
+    "명령을 선택하세요",
+    options,
+    { source: "runtime_text_infer", reason: "inline_command_prompt", inputMode: "selection" }
+  );
+}
+
 function runtimeIndicatesUserQuestion(ev) {
   const src = ev?.event || ev?.data || ev;
   if (!src || typeof src !== "object") return false;
@@ -542,6 +559,11 @@ function processText(ticket, text) {
   if (!text) return;
   ticket.log += text;
   applyRedline(ticket, { text });
+
+  if (!ticket.pendingAction) {
+    const inferred = inferSelectionFromTextPrompt(text);
+    if (inferred) setPendingAction(ticket, inferred, "runtime_text_infer");
+  }
 }
 
 function extractOptionsFromPrompt(prompt) {
@@ -1287,6 +1309,7 @@ module.exports = {
   resolveToolUsePendingAction,
   createUnknownInteractionFallbackPendingAction,
   runtimeIndicatesUserQuestion,
+  inferSelectionFromTextPrompt,
   isPendingActionExpired,
   validateActionResolutionPayload,
   expireStalePendingAction,

@@ -6,6 +6,7 @@ const {
   resolveToolUsePendingAction,
   createUnknownInteractionFallbackPendingAction,
   runtimeIndicatesUserQuestion,
+  inferSelectionFromTextPrompt,
 } = require('../server');
 
 test('resolveEventPendingAction normalizes schema contract fields', () => {
@@ -71,4 +72,10 @@ test('resolveToolUsePendingAction infers options from markdown prompt list', () 
 
   assert.equal(pending.type, 'selection');
   assert.deepEqual(pending.options.map(o => o.id), ['go', 'refactor', 'commit']);
+});
+
+test('inferSelectionFromTextPrompt infers command options from inline backticks', () => {
+  const pending = inferSelectionFromTextPrompt('명령을 입력해 주세요: `go`, `commit`, `refactor`');
+  assert.equal(pending.type, 'selection');
+  assert.deepEqual(pending.options.map(o => o.id), ['go', 'commit', 'refactor']);
 });
