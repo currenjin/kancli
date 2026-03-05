@@ -190,3 +190,43 @@
   - worker slot(#1~#3) 점유 상태/티켓 표시
   - queue depth, rough ETA(min) 계산값을 API 및 대시보드에 노출
   - ticket별 worker slot 메타데이터 표시로 실행 주체 추적성 향상
+
+## T026 (P1) 카드 시각 계층/가독성 개선
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - 카드 타이포/간격/강조 라인 재정렬로 핵심 정보 우선 노출
+  - ticket id / current skill / pending prompt 가시성 강화
+  - 배지/메타/상태 정보 대비 개선
+
+## T027 (P1) 카드 정보 밀도 최적화(secondary collapse)
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - branch/commit/artifact를 details 접이식으로 이동
+  - 상단 요약 라인을 concise하게 단순화
+  - 기존 기능(로그/액션) 동작 변경 없이 유지
+
+## T028 (P1) 액션 컨트롤 우선순위 스타일링
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - next(primary) / delete(danger) / 일반 컨트롤(secondary) 그룹화
+  - pending action 영역에 명시 타이틀/버튼 affordance 추가
+  - 수동 승인 시 approve/reject 우선순위 강조 유지
+
+## T029 (P1) 칸반 사용성 개선(sticky/empty)
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - 컬럼 헤더 sticky 처리로 스크롤 중 문맥 유지
+  - 컬럼 empty-state를 안내형 UI로 개선
+  - 컬럼 높이/스크롤 동작을 보드 사용성 중심으로 조정
+
+## T030 (P1) 좁은 화면 대응 반응형 폴리시
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - 1200px 이하에서 패딩/컬럼 높이/간격 조정
+  - 가로 스크롤 + 카드 정보 밀도 재균형 적용
+  - 기존 API/기능 로직 변경 없이 UI 폴리시만 반영
