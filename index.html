@@ -194,42 +194,55 @@
     </div>
 
     <div class="card section">
-      <div class="row">
-        <input id="project-path" class="grow" placeholder="/Users/.../project"/>
-        <button class="secondary" onclick="scanSkills()">스캔</button>
-        <button class="primary" onclick="saveConfig()">설정 저장</button>
+      <div class="row row-between">
+        <b>이슈 추가</b>
+        <span class="muted">칸반 투입</span>
       </div>
-      <div class="muted stack-md">Pipeline: <span id="pipeline-text">-</span></div>
-      <div class="muted stack-sm">Preview before save: <span id="pipeline-preview">-</span></div>
-      <div class="row stack-md"><span class="section-title">Pipeline Order</span></div>
-      <div id="pipeline-editor"></div>
       <div class="row stack-md">
         <input id="ticket-input" class="grow" placeholder="RP-5316"/>
         <button class="primary" onclick="addTicket()">티켓 추가</button>
       </div>
-      <div class="row stack-md">
-        <span class="muted">Theme:</span>
-        <select id="theme-mode" onchange="setThemeMode(this.value)">
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-        <span class="muted">Density:</span>
-        <select id="density-mode" onchange="setDensityMode(this.value)">
-          <option value="comfy">Comfy</option>
-          <option value="compact">Compact</option>
-        </select>
-        <span class="muted">Board view:</span>
-        <select id="view-mode" onchange="setViewMode(this.value)">
-          <option value="skill">Skill</option>
-          <option value="status">Status</option>
-        </select>
-        <span class="muted">WIP mode:</span>
-        <select id="wip-mode" onchange="setWipMode(this.value)">
-          <option value="warn">warning</option>
-          <option value="enforce">enforce</option>
-        </select>
+    </div>
+
+    <div class="card section">
+      <div class="row row-between">
+        <b>설정</b>
+        <button id="settings-toggle" class="secondary" onclick="toggleSettingsPanel()">닫기</button>
       </div>
-      <div id="skills" class="muted stack-md"></div>
+      <div id="settings-panel" class="stack-md">
+        <div class="row">
+          <input id="project-path" class="grow" placeholder="/Users/.../project"/>
+          <button class="secondary" onclick="scanSkills()">스캔</button>
+          <button class="primary" onclick="saveConfig()">설정 저장</button>
+        </div>
+        <div class="muted stack-md">Pipeline: <span id="pipeline-text">-</span></div>
+        <div class="muted stack-sm">Preview before save: <span id="pipeline-preview">-</span></div>
+        <div class="row stack-md"><span class="section-title">Pipeline Order</span></div>
+        <div id="pipeline-editor"></div>
+        <div class="row stack-md">
+          <span class="muted">Theme:</span>
+          <select id="theme-mode" onchange="setThemeMode(this.value)">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+          <span class="muted">Density:</span>
+          <select id="density-mode" onchange="setDensityMode(this.value)">
+            <option value="comfy">Comfy</option>
+            <option value="compact">Compact</option>
+          </select>
+          <span class="muted">Board view:</span>
+          <select id="view-mode" onchange="setViewMode(this.value)">
+            <option value="skill">Skill</option>
+            <option value="status">Status</option>
+          </select>
+          <span class="muted">WIP mode:</span>
+          <select id="wip-mode" onchange="setWipMode(this.value)">
+            <option value="warn">warning</option>
+            <option value="enforce">enforce</option>
+          </select>
+        </div>
+        <div id="skills" class="muted stack-md"></div>
+      </div>
     </div>
 
     <div id="timeline-panel" class="card section" style="display:none">
@@ -259,11 +272,13 @@ let collapsedColumns = new Set();
 let timelineTicketId = null;
 let pendingWipLimits = {};
 let pipelineDragIndex = null;
+let settingsOpen = true;
 
 const PREF_KEYS = {
   theme: 'devflow:theme',
   density: 'devflow:density',
-  collapsed: 'devflow:collapsed-columns'
+  collapsed: 'devflow:collapsed-columns',
+  settingsOpen: 'devflow:settings-open'
 };
 
 function statusColumnKey(t) { if (t.status === 'queued') return 'queued'; if (t.status === 'running') return 'running'; if (['review','awaiting_input','done'].includes(t.status)) return 'review'; return 'blocked'; }
@@ -277,6 +292,7 @@ function columnForTicket(t) { if (viewMode === 'status') return statusColumnKey(
 function loadUiPrefs() {
   themeMode = localStorage.getItem(PREF_KEYS.theme) === 'dark' ? 'dark' : 'light';
   densityMode = localStorage.getItem(PREF_KEYS.density) === 'compact' ? 'compact' : 'comfy';
+  settingsOpen = localStorage.getItem(PREF_KEYS.settingsOpen) !== '0';
   try {
     const raw = localStorage.getItem(PREF_KEYS.collapsed);
     const parsed = raw ? JSON.parse(raw) : [];
@@ -361,6 +377,8 @@ function render() {
   document.getElementById('density-mode').value = densityMode;
   document.getElementById('view-mode').value = viewMode;
   document.getElementById('wip-mode').value = state.wipPolicy?.mode === 'enforce' ? 'enforce' : 'warn';
+  document.getElementById('settings-panel').style.display = settingsOpen ? 'block' : 'none';
+  document.getElementById('settings-toggle').textContent = settingsOpen ? '닫기' : '열기';
 
   const columns = boardColumns();
   const validColumnIds = new Set(columns.map(c => c.id));
@@ -433,6 +451,11 @@ function toggleColumnCollapse(columnId) {
   if (collapsedColumns.has(columnId)) collapsedColumns.delete(columnId);
   else collapsedColumns.add(columnId);
   persistCollapsedColumns();
+  render();
+}
+function toggleSettingsPanel() {
+  settingsOpen = !settingsOpen;
+  localStorage.setItem(PREF_KEYS.settingsOpen, settingsOpen ? '1' : '0');
   render();
 }
 function setViewMode(mode) { viewMode = mode === 'status' ? 'status' : 'skill'; render(); }
