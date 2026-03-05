@@ -89,6 +89,10 @@
     .timeline-item { padding:6px 0; border-bottom:1px dashed #e2e8f0; font-size:12px; }
     .timeline-item:last-child { border-bottom:none; }
     .wip-input { width:68px; font-size:12px; padding:4px 6px; }
+    .pipeline-item { display:flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid #e2e8f0; border-radius:8px; margin-top:6px; background:#fff; }
+    .pipeline-item[draggable='true'] { cursor: grab; }
+    .pipeline-item.dragging { opacity: .5; }
+    .pipeline-item.drop-target { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,.15) inset; }
 
     @media (max-width: 1200px) {
       .container { padding: 14px; }
@@ -158,6 +162,7 @@ let eventStats = { lifecycle: 0, step: 0, redline: 0, artifact: 0 };
 let viewMode = 'skill';
 let timelineTicketId = null;
 let pendingWipLimits = {};
+let pipelineDragIndex = null;
 
 function statusColumnKey(t) { if (t.status === 'queued') return 'queued'; if (t.status === 'running') return 'running'; if (['review','awaiting_input','done'].includes(t.status)) return 'review'; return 'blocked'; }
 function boardColumns() {
@@ -254,14 +259,33 @@ function render() {
 }
 
 function renderPipelineEditor() {
-  const html = editPipeline.map((s, i) => `<div class='pipeline-item'><span>${i+1}. ${esc(s)}</span><button onclick='movePipeline(${i},-1)'>↑</button><button onclick='movePipeline(${i},1)'>↓</button><button onclick="removeFromPipeline('${escAttr(s)}')">x</button></div>`).join('');
-  document.getElementById('pipeline-editor').innerHTML = html || `<div class='muted'>선택된 pipeline 없음</div>`;
+  const html = editPipeline.map((s, i) => `<div class='pipeline-item' draggable='true' data-index='${i}' ondragstart='onPipelineDragStart(event, ${i})' ondragover='onPipelineDragOver(event, ${i})' ondragleave='onPipelineDragLeave(event)' ondrop='onPipelineDrop(event, ${i})' ondragend='onPipelineDragEnd(event)'><span>${i+1}. ${esc(s)}</span><button onclick='movePipeline(${i},-1)'>↑</button><button onclick='movePipeline(${i},1)'>↓</button><button onclick="removeFromPipeline('${escAttr(s)}')">x</button></div>`).join('');
+  document.getElementById('pipeline-editor').innerHTML = (html ? `<div class='muted' style='margin-top:6px'>드래그앤드롭으로 순서 변경 가능</div>${html}` : `<div class='muted'>선택된 pipeline 없음</div>`);
   document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${escAttr(s)}')">${esc(s)}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
 }
 
 function movePipeline(index, delta) { const to=index+delta; if (to<0||to>=editPipeline.length) return; [editPipeline[index],editPipeline[to]]=[editPipeline[to],editPipeline[index]]; render(); }
 function removeFromPipeline(skill) { editPipeline = editPipeline.filter(s => s !== skill); render(); }
 function toggleSkill(skill) { if (editPipeline.includes(skill)) return removeFromPipeline(skill); editPipeline.push(skill); render(); }
+function onPipelineDragStart(e, index) { pipelineDragIndex = index; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
+function onPipelineDragOver(e, index) { e.preventDefault(); if (pipelineDragIndex === null || pipelineDragIndex === index) return; e.currentTarget.classList.add('drop-target'); e.dataTransfer.dropEffect = 'move'; }
+function onPipelineDragLeave(e) { e.currentTarget.classList.remove('drop-target'); }
+function onPipelineDrop(e, targetIndex) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drop-target');
+  if (pipelineDragIndex === null || pipelineDragIndex === targetIndex) return;
+  const moved = editPipeline[pipelineDragIndex];
+  editPipeline.splice(pipelineDragIndex, 1);
+  const insertIndex = pipelineDragIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  editPipeline.splice(insertIndex, 0, moved);
+  pipelineDragIndex = null;
+  render();
+}
+function onPipelineDragEnd(e) {
+  pipelineDragIndex = null;
+  document.querySelectorAll('.pipeline-item.drop-target').forEach(el => el.classList.remove('drop-target'));
+  e.currentTarget.classList.remove('dragging');
+}
 function setViewMode(mode) { viewMode = mode === 'status' ? 'status' : 'skill'; render(); }
 function setWipMode(mode) { state.wipPolicy = { mode: mode === 'enforce' ? 'enforce' : 'warn' }; saveConfig(); }
 function changeWip(skill, value) { const n = Number(value); if (!pendingWipLimits) pendingWipLimits = {}; if (Number.isInteger(n) && n >= 0) pendingWipLimits[skill] = n; else delete pendingWipLimits[skill]; saveConfig(); }

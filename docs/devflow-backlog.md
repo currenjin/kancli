@@ -106,6 +106,15 @@
   - 백엔드 응답에 `pipelineColumns`, `ticket.currentSkill`, `ticket.isDone` 메타데이터 추가
   - 테스트 추가: `test/kanban-skill-columns.test.js`
 
+## T031 (P0) Pipeline 순서 Drag & Drop 조정
+- 상태: DONE
+- 결과:
+  - 설정 영역 `Pipeline Order`를 드래그앤드롭 재정렬 가능하도록 개선
+  - 기존 ↑/↓/삭제 제어는 유지(키보드/명시적 조작 fallback)
+  - 드래그 대상 하이라이트(`drop-target`)와 안내문구 추가
+  - 저장 전 preview(`Preview before save`)와 즉시 동기화
+
+
 ## T014 (P0) Approval gate policy engine (auto/manual)
 - 상태: DONE
 - 결과:
