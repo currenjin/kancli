@@ -259,7 +259,7 @@ function render() {
 }
 
 function renderPipelineEditor() {
-  const html = editPipeline.map((s, i) => `<div class='pipeline-item' draggable='true' data-index='${i}' ondragstart='onPipelineDragStart(event, ${i})' ondragover='onPipelineDragOver(event, ${i})' ondragleave='onPipelineDragLeave(event)' ondrop='onPipelineDrop(event, ${i})' ondragend='onPipelineDragEnd(event)'><span>${i+1}. ${esc(s)}</span><button onclick='movePipeline(${i},-1)'>↑</button><button onclick='movePipeline(${i},1)'>↓</button><button onclick="removeFromPipeline('${escAttr(s)}')">x</button></div>`).join('');
+  const html = editPipeline.map((s, i) => `<div class='pipeline-item' draggable='true' data-index='${i}' ondragstart='onPipelineDragStart(event, ${i})' ondragover='onPipelineDragOver(event, ${i})' ondragleave='onPipelineDragLeave(event)' ondrop='onPipelineDrop(event, ${i})' ondragend='onPipelineDragEnd(event)'><span>${i+1}. ${esc(s)}</span><span class='muted'>⠿ drag</span></div>`).join('');
   document.getElementById('pipeline-editor').innerHTML = (html ? `<div class='muted' style='margin-top:6px'>드래그앤드롭으로 순서 변경 가능</div>${html}` : `<div class='muted'>선택된 pipeline 없음</div>`);
   document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${escAttr(s)}')">${esc(s)}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
 }
