@@ -332,18 +332,21 @@ function renderPendingActions(t) {
   if (!t.pendingAction) return '';
   const pa = t.pendingAction;
   const prominentApproval = pa.metadata?.reason === 'manual_approval_required';
-  const options = pa.options || [];
+  const options = Array.isArray(pa.options) ? pa.options : [];
+  const inputMode = typeof pa.inputMode === 'string' ? pa.inputMode : '';
+  const unknownFallback = pa.metadata?.reason === 'unknown_interaction';
+  const needsTextInput = ['text','input','free_text'].includes(pa.type) || inputMode === 'free_text' || (unknownFallback && options.length === 0);
   const selectHtml = options.length
     ? `<select id='pending-select-${t.id}'>${options.map(o => `<option value='${escAttr(o.id)}'>${esc(o.label||o.id)}</option>`).join('')}</select>`
     : '';
-  const textBox = ['text','input','free_text'].includes(pa.type)
+  const textBox = needsTextInput
     ? `<input id='pending-input-${t.id}' class='grow' placeholder='응답 입력' onkeydown="if(event.key==='Enter'){submitPendingResponse('${t.id}')}"/>`
     : '';
   const defaultButtons = options.map(o => {
     const cls = prominentApproval && ['approve','reject'].includes(o.id) ? (o.id === 'reject' ? 'danger' : 'primary') : '';
     return `<button class='${cls}' onclick="resolveAction('${t.id}','${o.id}')">${esc(o.label||o.id)}</button>`;
   }).join(' ');
-  const submitButton = (pa.type === 'selection' || pa.type === 'confirm' || ['text','input','free_text'].includes(pa.type))
+  const submitButton = (pa.type === 'selection' || pa.type === 'confirm' || needsTextInput)
     ? `<button class='primary' onclick="submitPendingResponse('${t.id}')">응답 제출</button>`
     : '';
   return `<div class='pending'><div class='pending-title'>Pending Action</div><div class='muted'>${esc(pa.prompt)}</div><div class='row stack-sm'>${selectHtml}${textBox}${submitButton}</div><div class='actions'>${defaultButtons}</div></div>`;

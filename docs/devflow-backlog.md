@@ -284,3 +284,20 @@
   - 카드 내 `응답 제출`로 action resolve + step resume 경로 연결
   - interaction mode 현재값을 설정 패널에서 즉시 확인/변경 가능
   - 기존 API/기능 로직 변경 없이 UI 폴리시만 반영
+
+## T037 (P0) Schema-first interaction contract normalization
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - runtime interaction 파싱을 `pendingAction/pending_action/action` 스키마 우선 처리로 고정
+  - pending action 정규화 계약 강화(`type/prompt/options/metadata/inputMode/validation/createdAt/expiresAt`)
+  - 기존 승인/반려/복구 액션 resolve 경로와 동일 정책으로 통합
+
+## T038 (P0) Unknown interaction generic fallback 도입
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - 임시 하드코딩(특정 한국어 문구 + 옵션 파싱) 제거
+  - 구조화 이벤트 부재 + 사용자 입력 필요 신호 감지 시 generic fallback 생성
+  - fallback 스키마: `type=text`, `prompt=응답이 필요합니다.`, `metadata.reason=unknown_interaction`, `inputMode=free_text`
+  - 대시보드가 fallback/unknown interaction에 대해 텍스트 입력 제출 UI를 일관 제공

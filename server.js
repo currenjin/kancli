@@ -217,21 +217,42 @@ function normalizePendingActionOption(option, index) {
   return { id, label, payload: option.payload && typeof option.payload === "object" ? option.payload : {} };
 }
 
-function createPendingAction(type, prompt, options = [], metadata = {}) {
+function normalizePendingAction(raw = {}) {
+  if (!raw || typeof raw !== "object") return null;
+  return createPendingAction(
+    raw.type,
+    raw.prompt || raw.message,
+    raw.options || raw.choices,
+    raw.metadata,
+    {
+      inputMode: raw.inputMode || raw.input_mode,
+      validation: raw.validation,
+      createdAt: raw.createdAt,
+      expiresAt: raw.expiresAt,
+    }
+  );
+}
+
+function createPendingAction(type, prompt, options = [], metadata = {}, schema = {}) {
   const normalizedType = typeof type === "string" && type.trim() ? type.trim() : "selection";
   const normalizedPrompt = typeof prompt === "string" && prompt.trim() ? prompt.trim() : "입력이 필요합니다.";
   const normalizedOptions = Array.isArray(options)
     ? options.map((option, idx) => normalizePendingActionOption(option, idx)).filter(Boolean)
     : [];
   const now = Date.now();
-  return {
+  const createdAt = typeof schema.createdAt === "number" ? schema.createdAt : now;
+  const expiresAt = typeof schema.expiresAt === "number" ? schema.expiresAt : createdAt + PENDING_ACTION_TTL_MS;
+  const normalized = {
     type: normalizedType,
     prompt: normalizedPrompt,
     options: normalizedOptions,
     metadata: metadata && typeof metadata === "object" ? metadata : {},
-    createdAt: now,
-    expiresAt: now + PENDING_ACTION_TTL_MS,
+    createdAt,
+    expiresAt,
   };
+  if (typeof schema.inputMode === "string" && schema.inputMode.trim()) normalized.inputMode = schema.inputMode.trim();
+  if (schema.validation && typeof schema.validation === "object" && !Array.isArray(schema.validation)) normalized.validation = schema.validation;
+  return normalized;
 }
 
 function isPendingActionExpired(pendingAction) {
@@ -432,13 +453,7 @@ function emitTicket(ticket) {
 function resolveEventPendingAction(ev) {
   const src = ev?.event || ev?.data || ev;
   const pending = src?.pendingAction || src?.pending_action || src?.action;
-  if (!pending || typeof pending !== "object") return null;
-  return createPendingAction(
-    pending.type || "selection",
-    pending.prompt || pending.message || "입력이 필요합니다.",
-    pending.options || pending.choices || [],
-    pending.metadata || {}
-  );
+  return normalizePendingAction(pending);
 }
 
 function resolveEventArtifact(ev) {
@@ -456,29 +471,44 @@ function resolveEventArtifact(ev) {
   };
 }
 
-function resolveTextPendingAction(text) {
-  if (typeof text !== "string" || !text.trim()) return null;
-
-  // Common Claude ask pattern (e.g., "다음 명령을 선택하세요" + go/commit/refactor)
-  if (!text.includes("다음 명령을 선택하세요")) return null;
-
-  const optionRegex = /-\s*\*\*([^*]+)\*\*\s*-/g;
-  const options = [];
-  let m;
-  while ((m = optionRegex.exec(text)) !== null) {
-    const id = String(m[1] || "").trim();
-    if (!id) continue;
-    if (!options.find((o) => o.id === id)) options.push({ id, label: id });
-  }
-
-  if (!options.length) return null;
-
+function createUnknownInteractionFallbackPendingAction() {
   return createPendingAction(
-    "selection",
-    "다음 명령을 선택하세요",
-    options,
-    { source: "runtime_text_prompt", reason: "ask_user_question" }
+    "text",
+    "응답이 필요합니다.",
+    [{ id: "submit_text", label: "응답 제출" }],
+    { source: "runtime_fallback", reason: "unknown_interaction" },
+    { inputMode: "free_text" }
   );
+}
+
+function hasQuestionSignal(value) {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (!text) return false;
+  return /\?$|\n[^\n]*\?\s*$/.test(text);
+}
+
+function runtimeIndicatesUserQuestion(ev) {
+  const src = ev?.event || ev?.data || ev;
+  if (!src || typeof src !== "object") return false;
+
+  if (
+    src.requiresUserInput === true
+    || src.awaitingUserInput === true
+    || src.askUser === true
+    || src.needsResponse === true
+    || src.needs_input === true
+    || src.waiting_for_user === true
+  ) return true;
+
+  const stopReason = typeof src.stopReason === "string" ? src.stopReason.toLowerCase() : "";
+  if (["awaiting_user_input", "needs_user_input", "ask_user", "question"].includes(stopReason)) return true;
+
+  if (hasQuestionSignal(src.message) || hasQuestionSignal(src.result) || hasQuestionSignal(src.log)) return true;
+
+  const content = src.message?.content;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => hasQuestionSignal(block?.text));
 }
 
 function applyRedline(ticket, input = {}) {
@@ -512,9 +542,6 @@ function processText(ticket, text) {
   if (!text) return;
   ticket.log += text;
   applyRedline(ticket, { text });
-
-  const textPending = resolveTextPendingAction(text);
-  if (textPending) setPendingAction(ticket, textPending, "runtime_text");
 }
 
 function processContentBlocks(ticket, blocks) {
@@ -549,6 +576,10 @@ function parseStreamEvent(ticket, ev) {
   if (typeof ev.signal === "string") applyRedline(ticket, { signal: ev.signal });
   if (typeof ev.message === "string") processText(ticket, `${ev.message}\n`);
   if (typeof ev.log === "string") processText(ticket, `${ev.log}\n`);
+
+  if (!ticket.pendingAction && runtimeIndicatesUserQuestion(ev)) {
+    setPendingAction(ticket, createUnknownInteractionFallbackPendingAction(), "runtime_fallback");
+  }
 }
 
 function resolutionToPrompt(resolution) {
@@ -1179,6 +1210,10 @@ if (require.main === module) {
 
 module.exports = {
   createPendingAction,
+  normalizePendingAction,
+  resolveEventPendingAction,
+  createUnknownInteractionFallbackPendingAction,
+  runtimeIndicatesUserQuestion,
   isPendingActionExpired,
   validateActionResolutionPayload,
   expireStalePendingAction,
