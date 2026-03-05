@@ -148,3 +148,45 @@
   - ticket transition 타임라인 이벤트를 DB(`timelineEvents`)에 영속 저장
   - 검색 endpoint 추가: `GET /api/timeline?ticketId=&q=&limit=`
   - SSE `timeline_event` 이벤트 방출 추가
+
+## T020 (P0) Dashboard pipeline ordering UX upgrade
+- 상태: DONE
+- 결과:
+  - 설정 화면에 pipeline 순서 편집기 추가(↑/↓/삭제)
+  - 저장 전 최종 파이프라인 순서 preview 표시
+  - skill 토글 + 순서 편집을 결합해 저장 전에 변경사항 확인 가능
+
+## T021 (P0) Skill-kanban manual step override
+- 상태: DONE
+- 결과:
+  - `POST /api/tickets/:id/move-step` endpoint 추가
+  - 강제 단계 이동 시 `reason` 필수 검증
+  - `manual_step_override` timeline 이벤트 기록(from/to step/skill/reason)
+
+## T022 (P0) Approval gate visualization on cards
+- 상태: DONE
+- 결과:
+  - 카드에 `manual approval required` 배지 명시
+  - 승인 대기 시 approve/reject 버튼 강조(Primary/Danger)
+  - pending approval 상태를 카드 내에서 즉시 식별 가능
+
+## T023 (P1) Ticket timeline panel UX
+- 상태: DONE
+- 결과:
+  - 티켓별 timeline 패널 추가(카드 timeline 버튼)
+  - ticketId 기준 timeline 조회 + query/limit 검색 필터 제공
+  - 이벤트 목록을 시간순으로 표시해 전환 이력 추적 강화
+
+## T024 (P1) Editable WIP limits + warning/enforcement mode
+- 상태: DONE
+- 결과:
+  - 스킬 컬럼 헤더에서 WIP limit inline 편집 및 즉시 저장
+  - WIP policy mode(`warn`/`enforce`) 토글 추가 및 config 반영
+  - enforce 모드에서 단계 진입 전 WIP 제한 검증(canEnterStep) 적용
+
+## T025 (P1) Worker pool observability panel
+- 상태: DONE
+- 결과:
+  - worker slot(#1~#3) 점유 상태/티켓 표시
+  - queue depth, rough ETA(min) 계산값을 API 및 대시보드에 노출
+  - ticket별 worker slot 메타데이터 표시로 실행 주체 추적성 향상

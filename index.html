@@ -7,11 +7,12 @@
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; background: #f8fafc; color: #1f2937; }
-    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-    .row { display: flex; gap: 8px; align-items: center; }
+    .container { max-width: 1500px; margin: 0 auto; padding: 20px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     input, button, select { padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
     button { cursor: pointer; background: white; }
     .primary { background: #2563eb; color: white; border-color: #2563eb; }
+    .danger { background: #dc2626; color: white; border-color: #dc2626; }
     .card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
     .grid { display: grid; gap: 10px; margin-top: 12px; overflow-x: auto; }
     .ticket { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; background: #fff; }
@@ -29,6 +30,11 @@
     .artifact { font: 11px monospace; margin-top: 6px; }
     .column-empty { margin-top: 8px; color: #94a3b8; font-size: 12px; }
     .column-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .pipeline-item { display:flex; align-items:center; gap:6px; margin-top:6px; }
+    .timeline-list { max-height: 220px; overflow:auto; margin-top:8px; border:1px solid #e2e8f0; border-radius:8px; padding:8px; }
+    .timeline-item { padding:6px 0; border-bottom:1px dashed #e2e8f0; font-size:12px; }
+    .timeline-item:last-child { border-bottom:none; }
+    .wip-input { width:68px; font-size:12px; padding:4px 6px; }
   </style>
 </head>
 <body>
@@ -37,6 +43,7 @@
     <div class="card" style="margin-bottom:12px">
       <b>Live Events</b>
       <div id="event-stats" class="muted" style="margin-top:6px">lifecycle:0 | step:0 | redline:0 | artifact:0</div>
+      <div id="worker-stats" class="muted" style="margin-top:6px">workers: -</div>
     </div>
 
     <div class="card" style="margin-bottom:12px">
@@ -46,6 +53,9 @@
         <button class="primary" onclick="saveConfig()">설정 저장</button>
       </div>
       <div class="muted" style="margin-top:8px">Pipeline: <span id="pipeline-text">-</span></div>
+      <div class="muted" style="margin-top:6px">Preview before save: <span id="pipeline-preview">-</span></div>
+      <div class="row" style="margin-top:8px"><b>Pipeline Order</b></div>
+      <div id="pipeline-editor"></div>
       <div class="row" style="margin-top:8px">
         <input id="ticket-input" placeholder="RP-5316" style="flex:1"/>
         <button class="primary" onclick="addTicket()">티켓 추가</button>
@@ -56,93 +66,83 @@
           <option value="skill">Skill</option>
           <option value="status">Status</option>
         </select>
+        <span class="muted">WIP mode:</span>
+        <select id="wip-mode" onchange="setWipMode(this.value)">
+          <option value="warn">warning</option>
+          <option value="enforce">enforce</option>
+        </select>
       </div>
       <div id="skills" class="muted" style="margin-top:8px"></div>
+    </div>
+
+    <div id="timeline-panel" class="card" style="margin-bottom:12px; display:none">
+      <div class="row" style="justify-content:space-between"><b>Ticket Timeline</b><button onclick="closeTimeline()">닫기</button></div>
+      <div id="timeline-head" class="muted" style="margin-top:6px">-</div>
+      <div class="row" style="margin-top:8px">
+        <input id="timeline-query" placeholder="query" style="flex:1" />
+        <input id="timeline-limit" type="number" min="1" max="500" value="50" style="width:86px" />
+        <button onclick="loadTimeline()">검색</button>
+      </div>
+      <div id="timeline-list" class="timeline-list"></div>
     </div>
 
     <div id="board" class="grid"></div>
   </div>
 
 <script>
-let state = { pipeline: [], pipelineColumns: [], wipLimits: {}, tickets: [] };
+let state = { pipeline: [], pipelineColumns: [], wipLimits: {}, wipPolicy: { mode:'warn' }, workerPool: { maxWorkers:3, queueDepth:0, roughEtaMin:0, slots:[] }, tickets: [] };
 let availableSkills = [];
 let editPipeline = [];
 let openLogs = new Set();
 let eventStats = { lifecycle: 0, step: 0, redline: 0, artifact: 0 };
 let viewMode = 'skill';
+let timelineTicketId = null;
+let pendingWipLimits = {};
 
-function statusColumnKey(t) {
-  if (t.status === 'queued') return 'queued';
-  if (t.status === 'running') return 'running';
-  if (['review','awaiting_input','done'].includes(t.status)) return 'review';
-  return 'blocked';
-}
-
+function statusColumnKey(t) { if (t.status === 'queued') return 'queued'; if (t.status === 'running') return 'running'; if (['review','awaiting_input','done'].includes(t.status)) return 'review'; return 'blocked'; }
 function boardColumns() {
-  if (viewMode === 'status') {
-    return [
-      { id:'queued', name:'Queue' },
-      { id:'running', name:'Running' },
-      { id:'review', name:'Review/Done' },
-      { id:'blocked', name:'Blocked/Halted' },
-    ];
-  }
-
-  const skillColumns = (state.pipelineColumns && state.pipelineColumns.length
-    ? state.pipelineColumns
-    : (state.pipeline || []).map((skill, order) => ({ id:`skill:${skill}`, name:skill, skill, order }))
-  ).map(c => ({ id: c.id, name: c.name || c.skill, skill: c.skill }));
-
-  return [...skillColumns, { id: 'done', name: 'Done' }];
+  if (viewMode === 'status') return [{ id:'queued', name:'Queue' },{ id:'running', name:'Running' },{ id:'review', name:'Review/Done' },{ id:'blocked', name:'Blocked/Halted' }];
+  const skillColumns = (state.pipelineColumns?.length ? state.pipelineColumns : (state.pipeline||[]).map((skill, order) => ({ id:`skill:${skill}`, name:skill, skill, order }))).map(c => ({ id:c.id, name:c.name||c.skill, skill:c.skill }));
+  return [...skillColumns, { id:'done', name:'Done' }];
 }
-
-function columnForTicket(t) {
-  if (viewMode === 'status') return statusColumnKey(t);
-  if (t.status === 'done' || t.isDone) return 'done';
-  if (t.currentSkill) return `skill:${t.currentSkill}`;
-  return 'done';
-}
+function columnForTicket(t) { if (viewMode === 'status') return statusColumnKey(t); if (t.status === 'done' || t.isDone) return 'done'; if (t.currentSkill) return `skill:${t.currentSkill}`; return 'done'; }
 
 function ticketBadges(t) {
   const badges = [`<span class='badge'>${esc(t.status)}</span>`];
   if (t.status === 'done' || t.isDone) badges.push(`<span class='badge done'>done</span>`);
-  if (t.status === 'blocked') badges.push(`<span class='badge danger'>blocked</span>`);
-  if (t.status === 'halted') badges.push(`<span class='badge danger'>halted</span>`);
-  if (t.status === 'review') badges.push(`<span class='badge warn'>review</span>`);
+  if (t.pendingAction?.metadata?.reason === 'manual_approval_required') badges.push(`<span class='badge danger'>manual approval required</span>`);
   if (t.pendingAction) badges.push(`<span class='badge warn'>pending-action</span>`);
   if (t.isStale) badges.push(`<span class='badge warn'>stale</span>`);
   if (t.blockedPriority) badges.push(`<span class='badge danger'>${esc(t.blockedPriority)}</span>`);
   return badges.join(' ');
 }
 
+function renderPendingActions(t) {
+  if (!t.pendingAction) return '';
+  const prominentApproval = t.pendingAction.metadata?.reason === 'manual_approval_required';
+  const btns = (t.pendingAction.options||[]).map(o => {
+    const cls = prominentApproval && ['approve','reject'].includes(o.id) ? (o.id === 'reject' ? 'danger' : 'primary') : '';
+    return `<button class='${cls}' onclick="resolveAction('${t.id}','${o.id}')">${esc(o.label||o.id)}</button>`;
+  }).join(' ');
+  return `<div class='pending'><div class='muted'>${esc(t.pendingAction.prompt)}</div>${btns}</div>`;
+}
+
 function ticketHtml(t) {
-  const actions = [];
-  actions.push(`<button onclick="toggleLog('${t.id}')">log</button>`);
+  const actions = [`<button onclick="toggleLog('${t.id}')">log</button>`,`<button onclick="openTimeline('${t.id}')">timeline</button>`,`<button onclick="moveStep('${t.id}')">move step</button>`];
   if (t.status === 'running') actions.push(`<button onclick="stopTicket('${t.id}')">stop</button>`);
   if (['review','awaiting_input','blocked','halted'].includes(t.status)) actions.push(`<button onclick="nextStep('${t.id}')">next</button>`);
   actions.push(`<button onclick="deleteTicket('${t.id}')">delete</button>`);
-
-  const pending = t.pendingAction ? `<div class='pending'><div class='muted'>${esc(t.pendingAction.prompt)}</div>
-    ${(t.pendingAction.options||[]).map(o=>`<button onclick="resolveAction('${t.id}','${o.id}')">${esc(o.label||o.id)}</button>`).join(' ')}</div>` : '';
-
   const artifacts = (t.artifacts||[]).slice(-3).map(a=>`<div class='artifact'>[${esc(a.type)}] ${esc(a.name)}</div>`).join('');
-
-  const summary = t.summary || {};
-  const detail = `<div class='muted'>skill: ${esc(t.currentSkill || '-')}</div>
-    <div class='muted'>latest commit: ${esc(summary.latestCommit||'-')}</div>
-    <div class='muted'>latest diff: ${esc(summary.latestDiff||'-')}</div>
-    <div class='muted'>test: ${esc(summary.testResult||'-')}</div>
-    <div class='muted'>root cause: ${esc(summary.rootCause||'-')}</div>
-    <div class='muted'>next action: ${esc(summary.nextAction||'-')}</div>
-    <div class='muted'>recommendation: ${esc(summary.recommendation||'-')}</div>`;
-
+  const s=t.summary||{};
   const log = openLogs.has(t.id) ? `<div class='log'>${esc(t.log || '')}</div>` : '';
   return `<div class='ticket ${t.status === 'done' || t.isDone ? 'done' : ''} ${t.isStale ? 'stale' : ''} ${t.isPinnedBlocked ? 'pinned' : ''}'>
     <div><b>${esc(t.jiraTicket)}</b> ${ticketBadges(t)}</div>
-    <div class='muted'>step ${t.currentStep + 1}/${Math.max(state.pipeline.length,1)} | ${esc(t.branchName || '-')}</div>
-    ${detail}
+    <div class='muted'>step ${t.currentStep + 1}/${Math.max(state.pipeline.length,1)} | ${esc(t.branchName || '-')} | slot:${t.workerSlot || '-'}</div>
+    <div class='muted'>skill: ${esc(t.currentSkill || '-')}</div>
+    <div class='muted'>latest commit: ${esc(s.latestCommit||'-')}</div>
+    <div class='muted'>next action: ${esc(s.nextAction||'-')}</div>
     <div class='actions'>${actions.join('')}</div>
-    ${pending}
+    ${renderPendingActions(t)}
     ${artifacts}
     ${log}
   </div>`;
@@ -150,28 +150,46 @@ function ticketHtml(t) {
 
 function render() {
   document.getElementById('pipeline-text').textContent = state.pipeline.length ? state.pipeline.join(' → ') : '-';
+  document.getElementById('pipeline-preview').textContent = editPipeline.length ? editPipeline.join(' → ') : '-';
   document.getElementById('event-stats').textContent = `lifecycle:${eventStats.lifecycle} | step:${eventStats.step} | redline:${eventStats.redline} | artifact:${eventStats.artifact}`;
+  const slots = (state.workerPool?.slots || []).map(s => `#${s.slot}:${s.jiraTicket || 'idle'}`).join(' | ');
+  document.getElementById('worker-stats').textContent = `workers ${slots || '-'} | queue:${state.workerPool?.queueDepth ?? 0} | ETA:${state.workerPool?.roughEtaMin ?? 0}m`;
   document.getElementById('view-mode').value = viewMode;
+  document.getElementById('wip-mode').value = state.wipPolicy?.mode === 'enforce' ? 'enforce' : 'warn';
 
   const columns = boardColumns();
   const groups = Object.fromEntries(columns.map(c => [c.id, []]));
-  for (const t of state.tickets) {
-    const key = columnForTicket(t);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(t);
-  }
+  for (const t of state.tickets) { const key = columnForTicket(t); if (!groups[key]) groups[key] = []; groups[key].push(t); }
 
   const board = document.getElementById('board');
-  board.style.gridTemplateColumns = `repeat(${Math.max(columns.length, 1)}, minmax(260px, 1fr))`;
+  board.style.gridTemplateColumns = `repeat(${Math.max(columns.length, 1)}, minmax(270px, 1fr))`;
   board.innerHTML = columns.map(c => {
     const tickets = groups[c.id] || [];
-    const limit = state.wipLimits?.[c.id] ?? state.wipLimits?.[c.skill] ?? null;
-    const over = Number.isInteger(limit) && tickets.length > limit;
-    const wipText = Number.isInteger(limit) ? `WIP ${tickets.length}/${limit}${over ? ' ⚠' : ''}` : `${tickets.length}`;
+    const limit = pendingWipLimits?.[c.id] ?? pendingWipLimits?.[c.skill] ?? state.wipLimits?.[c.id] ?? state.wipLimits?.[c.skill] ?? '';
+    const n = Number(limit);
+    const hasLimit = Number.isInteger(n) && n >= 0;
+    const over = hasLimit && tickets.length > n;
+    const wipText = hasLimit ? `WIP ${tickets.length}/${n}${over ? ' ⚠' : ''}` : `${tickets.length}`;
+    const wipEditor = c.skill ? `<input class='wip-input' type='number' min='0' value='${hasLimit ? n : ''}' placeholder='WIP' onchange="changeWip('${escAttr(c.skill)}', this.value)"/>` : '';
     const content = tickets.length ? tickets.map(ticketHtml).join('') : `<div class='column-empty'>비어 있음</div>`;
-    return `<div class='card'><div class='column-title'><b>${esc(c.name)}</b><span class='muted'>${wipText}</span></div>${content}</div>`;
+    return `<div class='card'><div class='column-title'><b>${esc(c.name)}</b><span class='muted'>${wipText}</span>${wipEditor}</div>${content}</div>`;
   }).join('');
+
+  renderPipelineEditor();
 }
+
+function renderPipelineEditor() {
+  const html = editPipeline.map((s, i) => `<div class='pipeline-item'><span>${i+1}. ${esc(s)}</span><button onclick='movePipeline(${i},-1)'>↑</button><button onclick='movePipeline(${i},1)'>↓</button><button onclick="removeFromPipeline('${escAttr(s)}')">x</button></div>`).join('');
+  document.getElementById('pipeline-editor').innerHTML = html || `<div class='muted'>선택된 pipeline 없음</div>`;
+  document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${escAttr(s)}')">${esc(s)}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
+}
+
+function movePipeline(index, delta) { const to=index+delta; if (to<0||to>=editPipeline.length) return; [editPipeline[index],editPipeline[to]]=[editPipeline[to],editPipeline[index]]; render(); }
+function removeFromPipeline(skill) { editPipeline = editPipeline.filter(s => s !== skill); render(); }
+function toggleSkill(skill) { if (editPipeline.includes(skill)) return removeFromPipeline(skill); editPipeline.push(skill); render(); }
+function setViewMode(mode) { viewMode = mode === 'status' ? 'status' : 'skill'; render(); }
+function setWipMode(mode) { state.wipPolicy = { mode: mode === 'enforce' ? 'enforce' : 'warn' }; saveConfig(); }
+function changeWip(skill, value) { const n = Number(value); if (!pendingWipLimits) pendingWipLimits = {}; if (Number.isInteger(n) && n >= 0) pendingWipLimits[skill] = n; else delete pendingWipLimits[skill]; saveConfig(); }
 
 async function loadConfig() {
   const res = await fetch('/api/config');
@@ -179,75 +197,57 @@ async function loadConfig() {
   document.getElementById('project-path').value = data.projectPath || '';
   availableSkills = data.availableSkills || [];
   editPipeline = [...(data.pipeline || [])];
-  document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${s}')">${s}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
-}
-
-function toggleSkill(skill) {
-  const i = editPipeline.indexOf(skill);
-  if (i >= 0) editPipeline.splice(i, 1); else editPipeline.push(skill);
-  loadConfigView();
-}
-
-function loadConfigView() {
-  document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${s}')">${s}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
-}
-
-function setViewMode(mode) {
-  viewMode = mode === 'status' ? 'status' : 'skill';
+  state.wipPolicy = data.wipPolicy || { mode:'warn' };
+  pendingWipLimits = { ...(data.wipLimits || {}) };
   render();
-}
-
-async function scanSkills() {
-  const p = document.getElementById('project-path').value.trim();
-  const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(p)}`);
-  const data = await res.json();
-  availableSkills = data.skills || [];
-  loadConfigView();
 }
 
 async function saveConfig() {
   const projectPath = document.getElementById('project-path').value.trim();
-  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projectPath, pipeline: editPipeline }) });
+  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projectPath, pipeline: editPipeline, wipLimits: pendingWipLimits, wipPolicy: state.wipPolicy }) });
   refresh();
 }
 
-async function refresh() {
-  const res = await fetch('/api/tickets');
-  state = await res.json();
-  render();
-}
-
-async function addTicket() {
-  const jiraTicket = document.getElementById('ticket-input').value.trim();
-  if (!jiraTicket) return;
-  await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jiraTicket }) });
-  document.getElementById('ticket-input').value = '';
-  refresh();
-}
-
-async function resolveAction(id, actionId) {
-  await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })});
-  refresh();
-}
+async function refresh() { const res = await fetch('/api/tickets'); state = await res.json(); pendingWipLimits = { ...(state.wipLimits || pendingWipLimits || {}) }; render(); }
+async function scanSkills() { const p = document.getElementById('project-path').value.trim(); const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(p)}`); const data = await res.json(); availableSkills = data.skills || []; render(); }
+async function addTicket() { const jiraTicket = document.getElementById('ticket-input').value.trim(); if (!jiraTicket) return; await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jiraTicket }) }); document.getElementById('ticket-input').value = ''; refresh(); }
+async function resolveAction(id, actionId) { await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })}); refresh(); }
 async function nextStep(id) { await fetch(`/api/tickets/${id}/next`, { method:'POST' }); refresh(); }
 async function stopTicket(id) { await fetch(`/api/tickets/${id}/stop`, { method:'POST' }); refresh(); }
 async function deleteTicket(id) { await fetch(`/api/tickets/${id}`, { method:'DELETE' }); refresh(); }
+async function moveStep(id) {
+  const t = state.tickets.find(x => x.id === id); if (!t) return;
+  const choices = state.pipeline.map((s, idx) => `${idx}:${s}`).join(', ');
+  const stepRaw = prompt(`이동할 step index를 입력하세요 (${choices})`, String(t.currentStep));
+  if (stepRaw == null) return;
+  const reason = prompt('이동 사유(reason)를 입력하세요 (필수)');
+  if (!reason || !reason.trim()) return alert('reason은 필수입니다.');
+  const res = await fetch(`/api/tickets/${id}/move-step`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ stepIndex: Number(stepRaw), reason: reason.trim() }) });
+  const data = await res.json();
+  if (!res.ok) alert(data.error || '이동 실패');
+  refresh();
+}
+
+async function openTimeline(ticketId) { timelineTicketId = ticketId; document.getElementById('timeline-panel').style.display = 'block'; document.getElementById('timeline-head').textContent = `ticket #${ticketId}`; await loadTimeline(); }
+function closeTimeline() { document.getElementById('timeline-panel').style.display = 'none'; timelineTicketId = null; }
+async function loadTimeline() {
+  if (!timelineTicketId) return;
+  const q = document.getElementById('timeline-query').value.trim();
+  const limit = Number(document.getElementById('timeline-limit').value || 50);
+  const res = await fetch(`/api/timeline?ticketId=${encodeURIComponent(timelineTicketId)}&q=${encodeURIComponent(q)}&limit=${encodeURIComponent(limit)}`);
+  const data = await res.json();
+  const events = data.events || [];
+  document.getElementById('timeline-list').innerHTML = events.length ? events.map(e => `<div class='timeline-item'><div><b>${esc(e.type || 'event')}</b> ${esc(e.status || '')}</div><div class='muted'>${new Date(e.timestamp).toLocaleString()} | step:${e.currentStep ?? '-'} | ${esc(JSON.stringify(e).slice(0, 240))}</div></div>`).join('') : `<div class='muted'>이벤트 없음</div>`;
+}
+
 function toggleLog(id) { if (openLogs.has(id)) openLogs.delete(id); else openLogs.add(id); render(); }
 function esc(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+function escAttr(s){ return String(s||'').replace(/'/g, "\\'"); }
 
 function connectSSE() {
   const es = new EventSource('/api/events');
-  es.addEventListener('ticket', (e) => {
-    const incoming = JSON.parse(e.data);
-    const idx = state.tickets.findIndex(t => t.id === incoming.id);
-    if (idx >= 0) state.tickets[idx] = incoming; else state.tickets.unshift(incoming);
-    render();
-  });
-  es.addEventListener('ticket_deleted', (e) => {
-    const { id } = JSON.parse(e.data);
-    state.tickets = state.tickets.filter(t => t.id !== id);
-    render();
-  });
+  es.addEventListener('ticket', (e) => { const incoming = JSON.parse(e.data); const idx = state.tickets.findIndex(t => t.id === incoming.id); if (idx >= 0) state.tickets[idx] = incoming; else state.tickets.unshift(incoming); render(); });
+  es.addEventListener('ticket_deleted', (e) => { const { id } = JSON.parse(e.data); state.tickets = state.tickets.filter(t => t.id !== id); render(); });
   es.addEventListener('task_lifecycle', () => { eventStats.lifecycle += 1; render(); });
   es.addEventListener('step_event', () => { eventStats.step += 1; render(); });
   es.addEventListener('redline_event', () => { eventStats.redline += 1; render(); });

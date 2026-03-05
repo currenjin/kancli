@@ -29,10 +29,12 @@ let config = {
   approvalPolicy: { defaultMode: "auto", steps: {} },
   failurePolicy: { retryBudget: 2, allowFallbackStep: true, fallbackStepIndex: 0 },
   wipLimits: {},
+  wipPolicy: { mode: "warn" },
 };
 const tickets = {};
 const queue = [];
 const running = new Set();
+const workerSlots = Array.from({ length: MAX_WORKERS }, (_, idx) => ({ slot: idx + 1, ticketId: null }));
 let nextId = 1;
 const timelineEvents = [];
 const sseClients = new Set();
@@ -108,6 +110,7 @@ function loadConfig() {
         fallbackStepIndex: Number.isInteger(loaded.failurePolicy?.fallbackStepIndex) ? Math.max(0, loaded.failurePolicy.fallbackStepIndex) : 0,
       },
       wipLimits: loaded.wipLimits && typeof loaded.wipLimits === "object" ? loaded.wipLimits : {},
+      wipPolicy: { mode: loaded.wipPolicy?.mode === "enforce" ? "enforce" : "warn" },
     };
   }
 }
@@ -229,6 +232,36 @@ function isPendingActionExpired(pendingAction) {
   if (!pendingAction) return false;
   if (typeof pendingAction.expiresAt !== "number") return false;
   return Date.now() > pendingAction.expiresAt;
+}
+
+function getSkillWipLimit(skill) {
+  const raw = config.wipLimits?.[`skill:${skill}`] ?? config.wipLimits?.[skill];
+  return Number.isInteger(raw) ? raw : null;
+}
+
+function canEnterStep(stepIndex, ticketId = null) {
+  const skill = config.pipeline[stepIndex];
+  if (!skill) return { ok: false, reason: "유효하지 않은 단계입니다." };
+  const limit = getSkillWipLimit(skill);
+  if (config.wipPolicy?.mode !== "enforce" || !Number.isInteger(limit)) return { ok: true };
+  const activeCount = Object.values(tickets).filter((t) => {
+    if (!t || t.id === ticketId || t.status === TASK_STATUS.DONE) return false;
+    return t.currentStep === stepIndex;
+  }).length;
+  if (activeCount >= limit) return { ok: false, reason: `${skill} 단계 WIP(${limit}) 초과` };
+  return { ok: true };
+}
+
+function assignWorkerSlot(ticketId) {
+  const slot = workerSlots.find((s) => !s.ticketId);
+  if (!slot) return null;
+  slot.ticketId = ticketId;
+  return slot.slot;
+}
+
+function releaseWorkerSlot(ticketId) {
+  const slot = workerSlots.find((s) => s.ticketId === ticketId);
+  if (slot) slot.ticketId = null;
 }
 
 function getApprovalMode(ticket) {
@@ -465,9 +498,19 @@ function startStep(id, options = {}) {
   if (!skill) return;
 
   ticket.status = TASK_STATUS.RUNNING;
+  const wip = canEnterStep(ticket.currentStep, ticket.id);
+  if (!wip.ok) {
+    ticket.status = TASK_STATUS.BLOCKED;
+    ticket.pendingAction = createRecoveryPendingAction(ticket, "wip_limit_enforced", `${wip.reason}. 다른 티켓 완료 후 재시도하거나 fallback/다음 단계를 선택하세요.`);
+    emitTicket(ticket);
+    return;
+  }
+
+  ticket.status = TASK_STATUS.RUNNING;
   ticket.pendingAction = null;
   ticket.log = "";
   running.add(id);
+  ticket.workerSlot = assignWorkerSlot(id);
   metrics.stepsStarted += 1;
   emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_started" });
   emitTicket(ticket);
@@ -509,6 +552,8 @@ function startStep(id, options = {}) {
 
   proc.on("exit", (code) => {
     running.delete(id);
+    releaseWorkerSlot(id);
+    ticket.workerSlot = null;
     ticket.proc = null;
     emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_completed", exitCode: code });
     metrics.stepsCompleted += 1;
@@ -552,6 +597,8 @@ function startStep(id, options = {}) {
 
   proc.on("error", (err) => {
     running.delete(id);
+    releaseWorkerSlot(id);
+    ticket.workerSlot = null;
     ticket.proc = null;
     emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "step_error", error: err.message });
     metrics.stepErrors += 1;
@@ -596,6 +643,7 @@ function addTicket(jiraTicket) {
     log: "",
     pendingAction: null,
     artifacts: [],
+    workerSlot: null,
     redline: createRedlineState(),
     approvals: {},
     failure: { retryUsedByStep: {} },
@@ -628,6 +676,14 @@ function moveToNextStep(id) {
   if (next >= config.pipeline.length) {
     t.status = TASK_STATUS.DONE;
     t.pendingAction = null;
+    emitTicket(t);
+    return sanitizeTicket(t);
+  }
+
+  const wip = canEnterStep(next, t.id);
+  if (!wip.ok) {
+    t.status = TASK_STATUS.BLOCKED;
+    t.pendingAction = createRecoveryPendingAction(t, "wip_limit_enforced", `${wip.reason}. WIP 제한 해제 또는 티켓 완료 후 다시 진행하세요.`);
     emitTicket(t);
     return sanitizeTicket(t);
   }
@@ -692,6 +748,13 @@ function resolvePendingAction(ticket, payload = {}) {
   if (validated.actionId === "retry" || mergedPayload.rerunCurrentStep) {
     const step = ticket.currentStep;
     ticket.failure.retryUsedByStep[step] = (ticket.failure.retryUsedByStep[step] || 0) + 1;
+    const wip = canEnterStep(ticket.currentStep, ticket.id);
+    if (!wip.ok) {
+      ticket.status = TASK_STATUS.BLOCKED;
+      ticket.pendingAction = createRecoveryPendingAction(ticket, "wip_limit_enforced", `${wip.reason}.`);
+      emitTicket(ticket);
+      return sanitizeTicket(ticket);
+    }
     ticket.status = TASK_STATUS.QUEUED;
     ticket.pendingAction = null;
     queue.push(ticket.id);
@@ -702,6 +765,13 @@ function resolvePendingAction(ticket, payload = {}) {
   if (validated.actionId === "fallback" || mergedPayload.fallback) {
     const fallbackStepIndex = Number.isInteger(config.failurePolicy?.fallbackStepIndex) ? config.failurePolicy.fallbackStepIndex : 0;
     ticket.currentStep = Math.max(0, Math.min(fallbackStepIndex, Math.max(0, config.pipeline.length - 1)));
+    const wip = canEnterStep(ticket.currentStep, ticket.id);
+    if (!wip.ok) {
+      ticket.status = TASK_STATUS.BLOCKED;
+      ticket.pendingAction = createRecoveryPendingAction(ticket, "wip_limit_enforced", `${wip.reason}.`);
+      emitTicket(ticket);
+      return sanitizeTicket(ticket);
+    }
     ticket.status = TASK_STATUS.QUEUED;
     ticket.pendingAction = null;
     queue.push(ticket.id);
@@ -826,6 +896,7 @@ const server = http.createServer((req, res) => {
         };
       }
       if (data.wipLimits !== undefined && typeof data.wipLimits === "object") config.wipLimits = data.wipLimits;
+      if (data.wipPolicy !== undefined) config.wipPolicy = { mode: data.wipPolicy?.mode === "enforce" ? "enforce" : "warn" };
       saveConfig();
       json(res, { ...config, availableSkills: config.projectPath ? scanSkills(config.projectPath) : [] });
     });
@@ -845,7 +916,19 @@ const server = http.createServer((req, res) => {
     const list = Object.values(tickets)
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((ticket) => sanitizeTicket(ticket, config.pipeline));
-    return json(res, { pipeline: config.pipeline, pipelineColumns, queue, running: Array.from(running), wipLimits: config.wipLimits || {}, tickets: list });
+    const queueDepth = queue.length;
+    const roughEtaMin = queueDepth > 0 ? Math.max(1, Math.ceil((queueDepth / Math.max(1, MAX_WORKERS)) * 5)) : 0;
+    const slots = workerSlots.map((slot) => {
+      const ticket = slot.ticketId ? tickets[slot.ticketId] : null;
+      return {
+        slot: slot.slot,
+        ticketId: slot.ticketId,
+        jiraTicket: ticket?.jiraTicket || null,
+        currentStep: ticket?.currentStep ?? null,
+        currentSkill: ticket?.currentStep != null ? config.pipeline[ticket.currentStep] || null : null,
+      };
+    });
+    return json(res, { pipeline: config.pipeline, pipelineColumns, queue, running: Array.from(running), wipLimits: config.wipLimits || {}, wipPolicy: config.wipPolicy || { mode: "warn" }, workerPool: { maxWorkers: MAX_WORKERS, queueDepth, roughEtaMin, slots }, tickets: list });
   }
 
   if (url.pathname === "/api/tickets" && req.method === "POST") {
@@ -909,11 +992,50 @@ const server = http.createServer((req, res) => {
     if (t.proc) t.proc.kill("SIGTERM");
     t.proc = null;
     running.delete(t.id);
+    releaseWorkerSlot(t.id);
+    t.workerSlot = null;
     t.status = TASK_STATUS.HALTED;
     t.pendingAction = createRecoveryPendingAction(t, "stopped_by_user", "작업이 중지되었습니다. 재시도/fallback/다음 단계 진행/중단 유지를 선택하세요.");
     emitTicket(t);
     schedule();
     return json(res, sanitizeTicket(t));
+  }
+
+  const moveStepMatch = url.pathname.match(/^\/api\/tickets\/(\d+)\/move-step$/);
+  if (moveStepMatch && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => body += c);
+    req.on("end", () => {
+      const t = tickets[moveStepMatch[1]];
+      if (!t) return json(res, { error: "not found" }, 404);
+      if (t.status === TASK_STATUS.RUNNING) return json(res, { error: "running 상태에서는 이동할 수 없습니다." }, 400);
+      let payload = {};
+      try { payload = JSON.parse(body || "{}"); } catch { return json(res, { error: "JSON 파싱 실패" }, 400); }
+      const stepIndex = Number(payload.stepIndex);
+      const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+      if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= config.pipeline.length) return json(res, { error: "유효한 stepIndex가 필요합니다." }, 400);
+      if (!reason) return json(res, { error: "이동 사유(reason)는 필수입니다." }, 400);
+      const wip = canEnterStep(stepIndex, t.id);
+      if (!wip.ok) return json(res, { error: wip.reason }, 400);
+      const fromStep = t.currentStep;
+      t.currentStep = stepIndex;
+      t.status = TASK_STATUS.QUEUED;
+      t.pendingAction = null;
+      if (!queue.includes(t.id)) queue.push(t.id);
+      addTimelineEvent({
+        ticketId: t.id,
+        type: "manual_step_override",
+        fromStep,
+        toStep: stepIndex,
+        fromSkill: config.pipeline[fromStep] || null,
+        toSkill: config.pipeline[stepIndex] || null,
+        reason,
+      });
+      emitTicket(t);
+      schedule();
+      return json(res, sanitizeTicket(t));
+    });
+    return;
   }
 
   if (url.pathname === "/api/timeline" && req.method === "GET") {
@@ -933,6 +1055,7 @@ const server = http.createServer((req, res) => {
     if (!t) return json(res, { error: "not found" }, 404);
     if (t.proc) t.proc.kill("SIGTERM");
     running.delete(t.id);
+    releaseWorkerSlot(t.id);
     const qIndex = queue.indexOf(t.id);
     if (qIndex >= 0) queue.splice(qIndex, 1);
     if (t.worktreePath) removeWorktree(t.worktreePath);
@@ -966,4 +1089,6 @@ module.exports = {
   createRecoveryPendingAction,
   getPipelineColumns,
   sanitizeTicket,
+  canEnterStep,
+  getSkillWipLimit,
 };
