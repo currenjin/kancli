@@ -240,6 +240,11 @@
             <option value="warn">warning</option>
             <option value="enforce">enforce</option>
           </select>
+          <span class="muted">Interaction:</span>
+          <select id="interaction-mode" onchange="setInteractionMode(this.value)">
+            <option value="interactive">interactive</option>
+            <option value="forbid">forbid</option>
+          </select>
         </div>
         <div id="skills" class="muted stack-md"></div>
       </div>
@@ -274,6 +279,7 @@ let timelineTicketId = null;
 let pendingWipLimits = {};
 let pipelineDragIndex = null;
 let settingsOpen = true;
+let interactionMode = 'interactive';
 
 const PREF_KEYS = {
   theme: 'devflow:theme',
@@ -324,12 +330,23 @@ function ticketBadges(t) {
 
 function renderPendingActions(t) {
   if (!t.pendingAction) return '';
-  const prominentApproval = t.pendingAction.metadata?.reason === 'manual_approval_required';
-  const btns = (t.pendingAction.options||[]).map(o => {
+  const pa = t.pendingAction;
+  const prominentApproval = pa.metadata?.reason === 'manual_approval_required';
+  const options = pa.options || [];
+  const selectHtml = options.length
+    ? `<select id='pending-select-${t.id}'>${options.map(o => `<option value='${escAttr(o.id)}'>${esc(o.label||o.id)}</option>`).join('')}</select>`
+    : '';
+  const textBox = ['text','input','free_text'].includes(pa.type)
+    ? `<input id='pending-input-${t.id}' class='grow' placeholder='응답 입력'/>`
+    : '';
+  const defaultButtons = options.map(o => {
     const cls = prominentApproval && ['approve','reject'].includes(o.id) ? (o.id === 'reject' ? 'danger' : 'primary') : '';
     return `<button class='${cls}' onclick="resolveAction('${t.id}','${o.id}')">${esc(o.label||o.id)}</button>`;
   }).join(' ');
-  return `<div class='pending'><div class='pending-title'>Pending Action</div><div class='muted'>${esc(t.pendingAction.prompt)}</div><div class='actions'>${btns}</div></div>`;
+  const submitButton = (pa.type === 'selection' || pa.type === 'confirm' || ['text','input','free_text'].includes(pa.type))
+    ? `<button class='primary' onclick="submitPendingResponse('${t.id}')">응답 제출</button>`
+    : '';
+  return `<div class='pending'><div class='pending-title'>Pending Action</div><div class='muted'>${esc(pa.prompt)}</div><div class='row stack-sm'>${selectHtml}${textBox}${submitButton}</div><div class='actions'>${defaultButtons}</div></div>`;
 }
 
 function ticketHtml(t) {
@@ -402,6 +419,7 @@ function render() {
   document.getElementById('density-mode').value = densityMode;
   document.getElementById('view-mode').value = viewMode;
   document.getElementById('wip-mode').value = state.wipPolicy?.mode === 'enforce' ? 'enforce' : 'warn';
+  document.getElementById('interaction-mode').value = interactionMode;
   document.getElementById('settings-panel').style.display = settingsOpen ? 'block' : 'none';
   document.getElementById('settings-toggle').textContent = settingsOpen ? '닫기' : '열기';
 
@@ -486,6 +504,7 @@ function toggleSettingsPanel() {
 }
 function setViewMode(mode) { viewMode = mode === 'status' ? 'status' : 'skill'; render(); }
 function setWipMode(mode) { state.wipPolicy = { mode: mode === 'enforce' ? 'enforce' : 'warn' }; saveConfig(); }
+function setInteractionMode(mode) { interactionMode = mode === 'forbid' ? 'forbid' : 'interactive'; saveConfig(); }
 function changeWip(skill, value) { const n = Number(value); if (!pendingWipLimits) pendingWipLimits = {}; if (Number.isInteger(n) && n >= 0) pendingWipLimits[skill] = n; else delete pendingWipLimits[skill]; saveConfig(); }
 
 async function loadConfig() {
@@ -495,13 +514,14 @@ async function loadConfig() {
   availableSkills = data.availableSkills || [];
   editPipeline = [...(data.pipeline || [])];
   state.wipPolicy = data.wipPolicy || { mode:'warn' };
+  interactionMode = data.interactionMode === 'forbid' ? 'forbid' : 'interactive';
   pendingWipLimits = { ...(data.wipLimits || {}) };
   render();
 }
 
 async function saveConfig() {
   const projectPath = document.getElementById('project-path').value.trim();
-  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projectPath, pipeline: editPipeline, wipLimits: pendingWipLimits, wipPolicy: state.wipPolicy }) });
+  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projectPath, pipeline: editPipeline, wipLimits: pendingWipLimits, wipPolicy: state.wipPolicy, interactionMode }) });
   refresh();
 }
 
@@ -509,6 +529,14 @@ async function refresh() { const res = await fetch('/api/tickets'); state = awai
 async function scanSkills() { const p = document.getElementById('project-path').value.trim(); const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(p)}`); const data = await res.json(); availableSkills = data.skills || []; render(); }
 async function addTicket() { const jiraTicket = document.getElementById('ticket-input').value.trim(); if (!jiraTicket) return; await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jiraTicket }) }); document.getElementById('ticket-input').value = ''; refresh(); }
 async function resolveAction(id, actionId) { await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })}); refresh(); }
+async function submitPendingResponse(id) {
+  const actionId = document.getElementById(`pending-select-${id}`)?.value;
+  const input = document.getElementById(`pending-input-${id}`)?.value || '';
+  const payload = { actionId, input };
+  if (!payload.actionId) delete payload.actionId;
+  await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  refresh();
+}
 async function nextStep(id) { await fetch(`/api/tickets/${id}/next`, { method:'POST' }); refresh(); }
 async function stopTicket(id) { await fetch(`/api/tickets/${id}/stop`, { method:'POST' }); refresh(); }
 async function deleteTicket(id) { await fetch(`/api/tickets/${id}`, { method:'DELETE' }); refresh(); }

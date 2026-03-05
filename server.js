@@ -30,6 +30,7 @@ let config = {
   failurePolicy: { retryBudget: 2, allowFallbackStep: true, fallbackStepIndex: 0 },
   wipLimits: {},
   wipPolicy: { mode: "warn" },
+  interactionMode: "interactive",
 };
 const tickets = {};
 const queue = [];
@@ -94,6 +95,10 @@ function normalizeMode(mode) {
   return mode === "manual" ? "manual" : "auto";
 }
 
+function normalizeInteractionMode(mode) {
+  return mode === "forbid" ? "forbid" : "interactive";
+}
+
 function loadConfig() {
   const loaded = loadJsonWithRecovery(CONFIG_FILE, { projectPath: "", pipeline: [] });
   if (loaded && typeof loaded === "object") {
@@ -111,6 +116,7 @@ function loadConfig() {
       },
       wipLimits: loaded.wipLimits && typeof loaded.wipLimits === "object" ? loaded.wipLimits : {},
       wipPolicy: { mode: loaded.wipPolicy?.mode === "enforce" ? "enforce" : "warn" },
+      interactionMode: normalizeInteractionMode(loaded.interactionMode),
     };
   }
 }
@@ -268,6 +274,48 @@ function getApprovalMode(ticket) {
   const skill = config.pipeline[ticket.currentStep];
   if (!skill) return "auto";
   return normalizeMode(config.approvalPolicy?.steps?.[skill] || config.approvalPolicy?.defaultMode || "auto");
+}
+
+function getInteractionMode() {
+  return normalizeInteractionMode(config.interactionMode);
+}
+
+function isLegacyPendingAction(pendingAction) {
+  const source = pendingAction?.metadata?.source;
+  return source === "approval_gate" || source === "recovery";
+}
+
+function applyPendingActionPolicy(ticket, origin = "runtime") {
+  if (!ticket?.pendingAction) return;
+  const interactiveAllowed = getInteractionMode() === "interactive" || isLegacyPendingAction(ticket.pendingAction) || origin === "approval_gate";
+  if (interactiveAllowed) {
+    ticket.status = TASK_STATUS.AWAITING_INPUT;
+    return;
+  }
+  const blockedReason = "interaction_mode_forbid";
+  ticket.status = TASK_STATUS.BLOCKED;
+  ticket.pendingAction = createRecoveryPendingAction(
+    ticket,
+    blockedReason,
+    "대화형 입력이 비활성화되어 있습니다. interactionMode를 interactive로 변경하거나 retry/fallback/다음 단계/중단 중 선택하세요."
+  );
+}
+
+function setPendingAction(ticket, pendingAction, origin = "runtime") {
+  if (!pendingAction) return;
+  ticket.pendingAction = pendingAction;
+  applyPendingActionPolicy(ticket, origin);
+  emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "pending_action", pendingActionType: pendingAction.type });
+  addTimelineEvent({
+    ticketId: ticket.id,
+    type: "pending_action_shown",
+    currentStep: ticket.currentStep,
+    pendingActionType: ticket.pendingAction?.type || pendingAction.type,
+    prompt: ticket.pendingAction?.prompt || pendingAction.prompt,
+    origin,
+    interactionMode: getInteractionMode(),
+    status: ticket.status,
+  });
 }
 
 function addTimelineEvent(event) {
@@ -450,10 +498,7 @@ function processContentBlocks(ticket, blocks) {
       processText(ticket, text.length > 500 ? `${text.substring(0, 500)}...\n` : `${text}\n`);
     } else if (["pending_action", "action_request", "action"].includes(b.type)) {
       const pa = resolveEventPendingAction({ event: b });
-      if (pa) {
-        ticket.pendingAction = pa;
-        emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "pending_action", pendingActionType: pa.type });
-      }
+      if (pa) setPendingAction(ticket, pa, "runtime");
     } else if (["artifact", "output_file", "file"].includes(b.type)) {
       const artifact = resolveEventArtifact({ event: b });
       if (artifact) addArtifact(ticket, artifact);
@@ -468,10 +513,7 @@ function parseStreamEvent(ticket, ev) {
   if (ev.type === "result" && ev.result) processText(ticket, `\n${ev.result}`);
 
   const pa = resolveEventPendingAction(ev);
-  if (pa) {
-    ticket.pendingAction = pa;
-    emitEvent("step_event", { ticketId: ticket.id, currentStep: ticket.currentStep, kind: "pending_action", pendingActionType: pa.type });
-  }
+  if (pa) setPendingAction(ticket, pa, "runtime");
 
   const artifact = resolveEventArtifact(ev);
   if (artifact) addArtifact(ticket, artifact);
@@ -576,8 +618,7 @@ function startStep(id, options = {}) {
         updatedAt: Date.now(),
       };
       if (mode === "manual") {
-        ticket.status = TASK_STATUS.AWAITING_INPUT;
-        ticket.pendingAction = createPendingAction(
+        setPendingAction(ticket, createPendingAction(
           "approval",
           `수동 승인 필요: ${config.pipeline[ticket.currentStep]} 단계 결과를 승인할까요?`,
           [
@@ -585,11 +626,13 @@ function startStep(id, options = {}) {
             { id: "reject", label: "반려", payload: { reject: true } },
           ],
           { reason: "manual_approval_required", source: "approval_gate", step: ticket.currentStep }
-        );
+        ), "approval_gate");
       } else {
         ticket.status = TASK_STATUS.REVIEW;
       }
-    } else ticket.status = TASK_STATUS.AWAITING_INPUT;
+    } else {
+      applyPendingActionPolicy(ticket, "runtime");
+    }
 
     emitTicket(ticket);
     schedule();
@@ -701,23 +744,35 @@ function validateActionResolutionPayload(payload, pending) {
   if (!payload || typeof payload !== "object") return { error: "잘못된 요청 본문입니다." };
   if (isPendingActionExpired(pending)) return { error: "요청된 액션이 만료되었습니다.", stale: true };
 
-  if (typeof payload.actionId !== "string" || !payload.actionId.trim()) {
-    return { error: "actionId는 필수 문자열입니다." };
-  }
-
-  const actionId = payload.actionId.trim();
-  const selected = pending.options?.find((o) => o.id === actionId) || null;
+  const pendingType = typeof pending?.type === "string" ? pending.type : "selection";
   const builtin = ["retry", "halt", "advance", "approve", "reject", "fallback"];
-
-  if (!selected && !builtin.includes(actionId)) {
-    return { error: `알 수 없는 actionId: ${actionId}` };
-  }
+  const input = typeof payload.input === "string" ? payload.input : "";
 
   if (payload.metadata !== undefined && (typeof payload.metadata !== "object" || Array.isArray(payload.metadata))) {
     return { error: "metadata는 객체여야 합니다." };
   }
 
-  return { actionId, selected, metadata: payload.metadata || {}, input: typeof payload.input === "string" ? payload.input : "" };
+  let actionId = typeof payload.actionId === "string" ? payload.actionId.trim() : "";
+  if (!actionId) {
+    if (["text", "input", "free_text"].includes(pendingType)) {
+      actionId = pending.options?.[0]?.id || "submit_text";
+    } else if (pendingType === "confirm") {
+      actionId = payload.confirm === false ? "reject" : (pending.options?.[0]?.id || "approve");
+    } else {
+      return { error: "actionId는 필수 문자열입니다." };
+    }
+  }
+
+  const selected = pending.options?.find((o) => o.id === actionId) || null;
+  if (!selected && !builtin.includes(actionId) && pendingType === "selection") {
+    return { error: `알 수 없는 actionId: ${actionId}` };
+  }
+
+  if (["text", "input", "free_text"].includes(pendingType) && !input.trim()) {
+    return { error: "text 입력이 필요합니다." };
+  }
+
+  return { actionId, selected, metadata: payload.metadata || {}, input };
 }
 
 function resolvePendingAction(ticket, payload = {}) {
@@ -730,7 +785,23 @@ function resolvePendingAction(ticket, payload = {}) {
     return { error: validated.error, code: 400 };
   }
 
+  if (getInteractionMode() === "forbid" && !isLegacyPendingAction(pending)) {
+    ticket.status = TASK_STATUS.BLOCKED;
+    ticket.pendingAction = createRecoveryPendingAction(ticket, "interaction_mode_forbid", "interactionMode=forbid 상태입니다. interactive로 전환하거나 복구 액션을 선택하세요.");
+    emitTicket(ticket);
+    return sanitizeTicket(ticket);
+  }
+
   const mergedPayload = { ...(validated.selected?.payload || {}), ...(validated.metadata || {}) };
+  addTimelineEvent({
+    ticketId: ticket.id,
+    type: "pending_action_submitted",
+    currentStep: ticket.currentStep,
+    pendingActionType: pending.type,
+    actionId: validated.actionId,
+    input: validated.input || "",
+    metadata: validated.metadata || {},
+  });
 
   if (validated.actionId === "approve" || mergedPayload.approve) {
     ticket.approvals[ticket.currentStep] = { mode: "manual", state: "approved", updatedAt: Date.now() };
@@ -897,6 +968,7 @@ const server = http.createServer((req, res) => {
       }
       if (data.wipLimits !== undefined && typeof data.wipLimits === "object") config.wipLimits = data.wipLimits;
       if (data.wipPolicy !== undefined) config.wipPolicy = { mode: data.wipPolicy?.mode === "enforce" ? "enforce" : "warn" };
+      if (data.interactionMode !== undefined) config.interactionMode = normalizeInteractionMode(data.interactionMode);
       saveConfig();
       json(res, { ...config, availableSkills: config.projectPath ? scanSkills(config.projectPath) : [] });
     });

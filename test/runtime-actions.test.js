@@ -44,3 +44,15 @@ test('stale pending action is detected and converted to recovery action', () => 
   assert.equal(ticket.pendingAction.metadata.reason, 'stale_action_expired');
   assert.equal(ticket.pendingAction.options[0].id, 'retry');
 });
+
+test('validateActionResolutionPayload supports text/input response loop', () => {
+  const pending = createPendingAction('text', 'why?', [{ id: 'reply', label: '답변 제출' }], { source: 'runtime' });
+
+  const ok = validateActionResolutionPayload({ input: 'because test', metadata: { via: 'ui' } }, pending);
+  assert.equal(ok.error, undefined);
+  assert.equal(ok.actionId, 'reply');
+  assert.equal(ok.input, 'because test');
+
+  const bad = validateActionResolutionPayload({ actionId: 'reply', input: '   ' }, pending);
+  assert.equal(bad.error, 'text 입력이 필요합니다.');
+});

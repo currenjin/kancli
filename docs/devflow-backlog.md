@@ -258,4 +258,29 @@
 - 결과:
   - 1200px 이하에서 패딩/컬럼 높이/간격 조정
   - 가로 스크롤 + 카드 정보 밀도 재균형 적용
+
+## T034 (P0) Interaction mode policy flag (forbid/interactive)
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `config.interactionMode` 도입(`forbid | interactive`, default: `interactive`)
+  - 런타임 pending action 정책 적용: `forbid`에서는 runtime interactive 액션을 BLOCKED 복구 액션으로 전환
+  - 설정 API 및 대시보드 설정 패널에 interaction mode 토글 추가(rollback: `forbid`로 전환)
+
+## T035 (P0) Interactive answer runtime loop + timeline
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - runtime/action prompt 수신 시 `pending_action_shown` timeline 이벤트 기록
+  - 사용자 응답 제출 시 `pending_action_submitted` timeline 이벤트 기록(input/actionId/metadata)
+  - text/input/confirm 타입 payload 검증 확장(텍스트 응답 제출 지원)
+  - 기존 approve/reject/recovery 플로우와 호환 유지
+
+## T036 (P1) Dashboard pending-action input widget 개선
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - pending action 카드에 선택형(select) + 자유입력(input) 응답 위젯 추가
+  - 카드 내 `응답 제출`로 action resolve + step resume 경로 연결
+  - interaction mode 현재값을 설정 패널에서 즉시 확인/변경 가능
   - 기존 API/기능 로직 변경 없이 UI 폴리시만 반영
