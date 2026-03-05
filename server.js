@@ -544,10 +544,54 @@ function processText(ticket, text) {
   applyRedline(ticket, { text });
 }
 
+function resolveToolUsePendingAction(block) {
+  if (!block || block.type !== "tool_use") return null;
+  const name = String(block.name || "");
+  if (!name) return null;
+
+  // Generic interactive tool pattern (e.g., AskUserQuestion)
+  if (!/ask.?user.?question/i.test(name)) return null;
+
+  const input = (block.input && typeof block.input === "object") ? block.input : {};
+  const prompt = input.prompt || input.question || input.message || input.text || "응답이 필요합니다.";
+
+  const rawOptions = input.options || input.choices || input.actions || [];
+  const options = Array.isArray(rawOptions)
+    ? rawOptions.map((o, idx) => {
+        if (typeof o === "string") return { id: o, label: o };
+        if (o && typeof o === "object") {
+          const id = String(o.id || o.value || o.key || o.name || `option_${idx + 1}`);
+          return { id, label: String(o.label || o.title || o.name || id), payload: o.payload || {} };
+        }
+        return null;
+      }).filter(Boolean)
+    : [];
+
+  if (options.length) {
+    return createPendingAction("selection", String(prompt), options, {
+      reason: "tool_user_question",
+      source: "tool_use",
+      toolName: name,
+      inputMode: "selection",
+    });
+  }
+
+  return createPendingAction("text", String(prompt), [], {
+    reason: "tool_user_question",
+    source: "tool_use",
+    toolName: name,
+    inputMode: "free_text",
+  });
+}
+
 function processContentBlocks(ticket, blocks) {
   for (const b of blocks || []) {
     if (b.type === "text") processText(ticket, b.text);
-    else if (b.type === "tool_use") processText(ticket, `\n> [${b.name}]\n`);
+    else if (b.type === "tool_use") {
+      processText(ticket, `\n> [${b.name}]\n`);
+      const pa = resolveToolUsePendingAction(b);
+      if (pa) setPendingAction(ticket, pa, "runtime_tool");
+    }
     else if (b.type === "tool_result" && b.content) {
       const text = typeof b.content === "string" ? b.content : "";
       processText(ticket, text.length > 500 ? `${text.substring(0, 500)}...\n` : `${text}\n`);
