@@ -7,20 +7,26 @@
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; background: #f8fafc; color: #1f2937; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    .row { display: flex; gap: 8px; }
-    input, button { padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    input, button, select { padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
     button { cursor: pointer; background: white; }
     .primary { background: #2563eb; color: white; border-color: #2563eb; }
     .card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
-    .ticket { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+    .grid { display: grid; gap: 10px; margin-top: 12px; overflow-x: auto; }
+    .ticket { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; background: #fff; }
+    .ticket.done { border-color: #86efac; background: #f0fdf4; }
     .muted { color: #64748b; font-size: 12px; }
     .badge { font-size: 11px; border-radius: 999px; padding: 2px 8px; background: #e2e8f0; }
+    .badge.done { background: #bbf7d0; color: #166534; }
+    .badge.warn { background: #fde68a; color: #92400e; }
+    .badge.danger { background: #fecaca; color: #991b1b; }
     .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .log { margin-top: 8px; max-height: 180px; overflow: auto; background: #0f172a; color: #e2e8f0; padding: 8px; border-radius: 6px; font: 11px/1.5 monospace; white-space: pre-wrap; }
     .pending { background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 6px; padding: 8px; margin-top: 8px; }
     .artifact { font: 11px monospace; margin-top: 6px; }
+    .column-empty { margin-top: 8px; color: #94a3b8; font-size: 12px; }
+    .column-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   </style>
 </head>
 <body>
@@ -42,29 +48,67 @@
         <input id="ticket-input" placeholder="RP-5316" style="flex:1"/>
         <button class="primary" onclick="addTicket()">티켓 추가</button>
       </div>
+      <div class="row" style="margin-top:8px">
+        <span class="muted">Board view:</span>
+        <select id="view-mode" onchange="setViewMode(this.value)">
+          <option value="skill">Skill</option>
+          <option value="status">Status</option>
+        </select>
+      </div>
       <div id="skills" class="muted" style="margin-top:8px"></div>
     </div>
 
-    <div class="grid">
-      <div class="card"><b>Queue</b><div id="col-queued"></div></div>
-      <div class="card"><b>Running</b><div id="col-running"></div></div>
-      <div class="card"><b>Review</b><div id="col-review"></div></div>
-      <div class="card"><b>Blocked/Halted</b><div id="col-blocked"></div></div>
-    </div>
+    <div id="board" class="grid"></div>
   </div>
 
 <script>
-let state = { pipeline: [], tickets: [] };
+let state = { pipeline: [], pipelineColumns: [], tickets: [] };
 let availableSkills = [];
 let editPipeline = [];
 let openLogs = new Set();
 let eventStats = { lifecycle: 0, step: 0, redline: 0, artifact: 0 };
+let viewMode = 'skill';
 
-function byStatus(t) {
+function statusColumnKey(t) {
   if (t.status === 'queued') return 'queued';
   if (t.status === 'running') return 'running';
-  if (t.status === 'review' || t.status === 'done' || t.status === 'awaiting_input') return 'review';
+  if (['review','awaiting_input','done'].includes(t.status)) return 'review';
   return 'blocked';
+}
+
+function boardColumns() {
+  if (viewMode === 'status') {
+    return [
+      { id:'queued', name:'Queue' },
+      { id:'running', name:'Running' },
+      { id:'review', name:'Review/Done' },
+      { id:'blocked', name:'Blocked/Halted' },
+    ];
+  }
+
+  const skillColumns = (state.pipelineColumns && state.pipelineColumns.length
+    ? state.pipelineColumns
+    : (state.pipeline || []).map((skill, order) => ({ id:`skill:${skill}`, name:skill, skill, order }))
+  ).map(c => ({ id: c.id, name: c.name || c.skill, skill: c.skill }));
+
+  return [...skillColumns, { id: 'done', name: 'Done' }];
+}
+
+function columnForTicket(t) {
+  if (viewMode === 'status') return statusColumnKey(t);
+  if (t.status === 'done' || t.isDone) return 'done';
+  if (t.currentSkill) return `skill:${t.currentSkill}`;
+  return 'done';
+}
+
+function ticketBadges(t) {
+  const badges = [`<span class='badge'>${esc(t.status)}</span>`];
+  if (t.status === 'done' || t.isDone) badges.push(`<span class='badge done'>done</span>`);
+  if (t.status === 'blocked') badges.push(`<span class='badge danger'>blocked</span>`);
+  if (t.status === 'halted') badges.push(`<span class='badge danger'>halted</span>`);
+  if (t.status === 'review') badges.push(`<span class='badge warn'>review</span>`);
+  if (t.pendingAction) badges.push(`<span class='badge warn'>pending-action</span>`);
+  return badges.join(' ');
 }
 
 function ticketHtml(t) {
@@ -80,13 +124,14 @@ function ticketHtml(t) {
   const artifacts = (t.artifacts||[]).slice(-3).map(a=>`<div class='artifact'>[${esc(a.type)}] ${esc(a.name)}</div>`).join('');
 
   const summary = t.summary || {};
-  const detail = `<div class='muted'>latest commit: ${esc(summary.latestCommit||'-')}</div>
+  const detail = `<div class='muted'>skill: ${esc(t.currentSkill || '-')}</div>
+    <div class='muted'>latest commit: ${esc(summary.latestCommit||'-')}</div>
     <div class='muted'>issue: ${esc(summary.issue||'-')}</div>
     <div class='muted'>next action: ${esc(summary.nextAction||'-')}</div>`;
 
   const log = openLogs.has(t.id) ? `<div class='log'>${esc(t.log || '')}</div>` : '';
-  return `<div class='ticket'>
-    <div><b>${esc(t.jiraTicket)}</b> <span class='badge'>${esc(t.status)}</span></div>
+  return `<div class='ticket ${t.status === 'done' || t.isDone ? 'done' : ''}'>
+    <div><b>${esc(t.jiraTicket)}</b> ${ticketBadges(t)}</div>
     <div class='muted'>step ${t.currentStep + 1}/${Math.max(state.pipeline.length,1)} | ${esc(t.branchName || '-')}</div>
     ${detail}
     <div class='actions'>${actions.join('')}</div>
@@ -99,11 +144,23 @@ function ticketHtml(t) {
 function render() {
   document.getElementById('pipeline-text').textContent = state.pipeline.length ? state.pipeline.join(' → ') : '-';
   document.getElementById('event-stats').textContent = `lifecycle:${eventStats.lifecycle} | step:${eventStats.step} | redline:${eventStats.redline} | artifact:${eventStats.artifact}`;
-  const cols = { queued: [], running: [], review: [], blocked: [] };
-  for (const t of state.tickets) cols[byStatus(t)].push(t);
-  for (const key of Object.keys(cols)) {
-    document.getElementById(`col-${key}`).innerHTML = cols[key].map(ticketHtml).join('') || `<div class='muted' style='margin-top:8px'>비어 있음</div>`;
+  document.getElementById('view-mode').value = viewMode;
+
+  const columns = boardColumns();
+  const groups = Object.fromEntries(columns.map(c => [c.id, []]));
+  for (const t of state.tickets) {
+    const key = columnForTicket(t);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
   }
+
+  const board = document.getElementById('board');
+  board.style.gridTemplateColumns = `repeat(${Math.max(columns.length, 1)}, minmax(260px, 1fr))`;
+  board.innerHTML = columns.map(c => {
+    const tickets = groups[c.id] || [];
+    const content = tickets.length ? tickets.map(ticketHtml).join('') : `<div class='column-empty'>비어 있음</div>`;
+    return `<div class='card'><div class='column-title'><b>${esc(c.name)}</b><span class='muted'>${tickets.length}</span></div>${content}</div>`;
+  }).join('');
 }
 
 async function loadConfig() {
@@ -123,6 +180,11 @@ function toggleSkill(skill) {
 
 function loadConfigView() {
   document.getElementById('skills').innerHTML = 'skills: ' + availableSkills.map(s => `<button onclick="toggleSkill('${s}')">${s}${editPipeline.includes(s)?'✓':''}</button>`).join(' ');
+}
+
+function setViewMode(mode) {
+  viewMode = mode === 'status' ? 'status' : 'skill';
+  render();
 }
 
 async function scanSkills() {

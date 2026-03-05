@@ -94,3 +94,14 @@
   - 기본 metrics counter 추가(tickets/steps/errors/redline/stale-action/sse)
   - `createRecoveryPendingAction` 도입으로 blocked/halted 복구 액션 통일(retry/advance/halt)
   - 관련 테스트 추가: `test/operability.test.js`
+
+## T013 (P1) Skill 기반 Kanban 컬럼 전환
+- 상태: DONE
+- 결과:
+  - 대시보드 기본 보드를 상태 기반 고정 컬럼에서 pipeline skill 기반 동적 컬럼으로 전환
+  - 티켓을 `currentStep/currentSkill` 기준으로 해당 skill 컬럼에 매핑
+  - blocked/halted/review/pending-action은 컬럼 분리 없이 카드 내 배지로 유지
+  - done 티켓 전용 `Done` 컬럼 및 카드 시각 강조 추가
+  - 상태 기반 보드는 `Board view` 토글(status/skill)로 옵션 유지
+  - 백엔드 응답에 `pipelineColumns`, `ticket.currentSkill`, `ticket.isDone` 메타데이터 추가
+  - 테스트 추가: `test/kanban-skill-columns.test.js`

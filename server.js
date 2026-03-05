@@ -581,10 +581,27 @@ function resolvePendingAction(ticket, payload = {}) {
   return sanitizeTicket(ticket);
 }
 
-function sanitizeTicket(t) {
+function getPipelineColumns(pipeline = config.pipeline || []) {
+  const skills = Array.isArray(pipeline) ? pipeline : [];
+  return skills.map((skill, index) => ({
+    id: `skill:${skill}`,
+    kind: "skill",
+    skill,
+    name: skill,
+    order: index,
+  }));
+}
+
+function sanitizeTicket(t, pipeline = config.pipeline || []) {
   if (!t || !t.id) return t;
   const { proc, ...rest } = t;
-  return rest;
+  const inRange = Number.isInteger(rest.currentStep) && rest.currentStep >= 0 && rest.currentStep < pipeline.length;
+  const currentSkill = inRange ? pipeline[rest.currentStep] : null;
+  return {
+    ...rest,
+    currentSkill,
+    isDone: rest.status === TASK_STATUS.DONE,
+  };
 }
 
 function json(res, data, code = 200) {
@@ -662,8 +679,11 @@ const server = http.createServer((req, res) => {
     for (const ticket of Object.values(tickets)) {
       if (expireStalePendingAction(ticket)) emitTicket(ticket);
     }
-    const list = Object.values(tickets).sort((a, b) => b.createdAt - a.createdAt).map(sanitizeTicket);
-    return json(res, { pipeline: config.pipeline, queue, running: Array.from(running), tickets: list });
+    const pipelineColumns = getPipelineColumns(config.pipeline);
+    const list = Object.values(tickets)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((ticket) => sanitizeTicket(ticket, config.pipeline));
+    return json(res, { pipeline: config.pipeline, pipelineColumns, queue, running: Array.from(running), tickets: list });
   }
 
   if (url.pathname === "/api/tickets" && req.method === "POST") {
@@ -771,4 +791,6 @@ module.exports = {
   repairDbState,
   planDispatch,
   createRecoveryPendingAction,
+  getPipelineColumns,
+  sanitizeTicket,
 };
