@@ -544,6 +544,32 @@ function processText(ticket, text) {
   applyRedline(ticket, { text });
 }
 
+function extractOptionsFromPrompt(prompt) {
+  if (typeof prompt !== "string" || !prompt.trim()) return [];
+  const out = [];
+
+  // e.g. "- **go** - ..." or "1. **go** - ..."
+  const boldOption = /(?:^|\n)\s*(?:[-*]|\d+[.)])?\s*\*\*([^*\n]+)\*\*/g;
+  let m;
+  while ((m = boldOption.exec(prompt)) !== null) {
+    const id = String(m[1] || "").trim();
+    if (!id) continue;
+    if (!out.find((o) => o.id === id)) out.push({ id, label: id });
+  }
+
+  // e.g. "- go - ..." or "1. go - ..."
+  if (!out.length) {
+    const plainOption = /(?:^|\n)\s*(?:[-*]|\d+[.)])\s*([a-zA-Z0-9_-]{2,40})\s*(?:[-:—]|$)/g;
+    while ((m = plainOption.exec(prompt)) !== null) {
+      const id = String(m[1] || "").trim();
+      if (!id) continue;
+      if (!out.find((o) => o.id === id)) out.push({ id, label: id });
+    }
+  }
+
+  return out;
+}
+
 function resolveToolUsePendingAction(block) {
   if (!block || block.type !== "tool_use") return null;
   const name = String(block.name || "");
@@ -553,7 +579,7 @@ function resolveToolUsePendingAction(block) {
   if (!/ask.?user.?question/i.test(name)) return null;
 
   const input = (block.input && typeof block.input === "object") ? block.input : {};
-  const prompt = input.prompt || input.question || input.message || input.text || "응답이 필요합니다.";
+  const prompt = String(input.prompt || input.question || input.message || input.text || "응답이 필요합니다.");
 
   const rawOptions = input.options || input.choices || input.actions || [];
   const options = Array.isArray(rawOptions)
@@ -567,8 +593,10 @@ function resolveToolUsePendingAction(block) {
       }).filter(Boolean)
     : [];
 
-  if (options.length) {
-    return createPendingAction("selection", String(prompt), options, {
+  const inferredOptions = options.length ? options : extractOptionsFromPrompt(prompt);
+
+  if (inferredOptions.length) {
+    return createPendingAction("selection", prompt, inferredOptions, {
       reason: "tool_user_question",
       source: "tool_use",
       toolName: name,
@@ -576,7 +604,7 @@ function resolveToolUsePendingAction(block) {
     });
   }
 
-  return createPendingAction("text", String(prompt), [], {
+  return createPendingAction("text", prompt, [], {
     reason: "tool_user_question",
     source: "tool_use",
     toolName: name,
@@ -1256,6 +1284,7 @@ module.exports = {
   createPendingAction,
   normalizePendingAction,
   resolveEventPendingAction,
+  resolveToolUsePendingAction,
   createUnknownInteractionFallbackPendingAction,
   runtimeIndicatesUserQuestion,
   isPendingActionExpired,
