@@ -125,6 +125,16 @@
   - 칸반 카드 메타/액션/pending 영역 정리로 가독성 개선
   - 기능 로직 변경 없이 UI/CSS 중심으로 반영
 
+## T033 (P1) Dashboard visual polish pass 3 (theme/density/collapse)
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - Light/Dark 테마 토글 추가 및 `localStorage` 기반 사용자 선호 저장
+  - 카드/배지/로그/입력/타임라인 등 핵심 UI의 다크 모드 대비/가독성 개선
+  - Comfy/Compact density 토글 추가(칸반 컬럼/카드 간격·패딩 최적화) + 로컬 선호 저장
+  - 컬럼별 collapse/expand 토글 추가, 접힘 상태 로컬 저장, 접힘 상태에서도 티켓 수 노출 유지
+  - 기존 API/워크플로우 동작 변경 없이 UI 레이어 중심 반영
+
 ## T014 (P0) Approval gate policy engine (auto/manual)
 - 상태: DONE
 - 결과:
