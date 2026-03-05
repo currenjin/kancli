@@ -264,6 +264,7 @@ let state = { pipeline: [], pipelineColumns: [], wipLimits: {}, wipPolicy: { mod
 let availableSkills = [];
 let editPipeline = [];
 let openLogs = new Set();
+let logScrollState = {};
 let eventStats = { lifecycle: 0, step: 0, redline: 0, artifact: 0 };
 let viewMode = 'skill';
 let themeMode = 'light';
@@ -339,7 +340,7 @@ function ticketHtml(t) {
 
   const artifacts = (t.artifacts||[]).slice(-3).map(a=>`<div class='artifact'>[${esc(a.type)}] ${esc(a.name)}</div>`).join('');
   const s=t.summary||{};
-  const log = openLogs.has(t.id) ? `<div class='log'>${esc(t.log || '')}</div>` : '';
+  const log = openLogs.has(t.id) ? `<div id='log-${t.id}' class='log'>${esc(t.log || '')}</div>` : '';
   const pendingPrompt = t.pendingAction?.prompt ? esc(t.pendingAction.prompt) : '-';
 
   return `<div class='ticket ${t.status === 'done' || t.isDone ? 'done' : ''} ${t.isStale ? 'stale' : ''} ${t.isPinnedBlocked ? 'pinned' : ''}'>
@@ -367,7 +368,31 @@ function ticketHtml(t) {
   </div>`;
 }
 
+function captureLogScrollState() {
+  for (const id of openLogs) {
+    const el = document.getElementById(`log-${id}`);
+    if (!el) continue;
+    const nearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 24;
+    logScrollState[id] = { top: el.scrollTop, nearBottom };
+  }
+}
+
+function restoreLogScrollState() {
+  for (const id of openLogs) {
+    const el = document.getElementById(`log-${id}`);
+    if (!el) continue;
+    const saved = logScrollState[id];
+    if (!saved) {
+      el.scrollTop = el.scrollHeight;
+      continue;
+    }
+    if (saved.nearBottom) el.scrollTop = el.scrollHeight;
+    else el.scrollTop = saved.top;
+  }
+}
+
 function render() {
+  captureLogScrollState();
   document.getElementById('pipeline-text').textContent = state.pipeline.length ? state.pipeline.join(' → ') : '-';
   document.getElementById('pipeline-preview').textContent = editPipeline.length ? editPipeline.join(' → ') : '-';
   document.getElementById('event-stats').textContent = `lifecycle:${eventStats.lifecycle} | step:${eventStats.step} | redline:${eventStats.redline} | artifact:${eventStats.artifact}`;
@@ -405,6 +430,7 @@ function render() {
   }).join('');
 
   renderPipelineEditor();
+  restoreLogScrollState();
 }
 
 function renderPipelineEditor() {
