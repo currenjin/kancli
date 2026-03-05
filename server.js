@@ -23,11 +23,18 @@ const TASK_STATUS = {
   HALTED: "halted",
 };
 
-let config = { projectPath: "", pipeline: [] };
+let config = {
+  projectPath: "",
+  pipeline: [],
+  approvalPolicy: { defaultMode: "auto", steps: {} },
+  failurePolicy: { retryBudget: 2, allowFallbackStep: true, fallbackStepIndex: 0 },
+  wipLimits: {},
+};
 const tickets = {};
 const queue = [];
 const running = new Set();
 let nextId = 1;
+const timelineEvents = [];
 const sseClients = new Set();
 const metrics = {
   startedAt: Date.now(),
@@ -81,12 +88,26 @@ function loadJsonWithRecovery(file, fallback) {
   }
 }
 
+function normalizeMode(mode) {
+  return mode === "manual" ? "manual" : "auto";
+}
+
 function loadConfig() {
   const loaded = loadJsonWithRecovery(CONFIG_FILE, { projectPath: "", pipeline: [] });
   if (loaded && typeof loaded === "object") {
     config = {
       projectPath: typeof loaded.projectPath === "string" ? loaded.projectPath : "",
       pipeline: Array.isArray(loaded.pipeline) ? loaded.pipeline.filter((s) => typeof s === "string" && s.trim()) : [],
+      approvalPolicy: {
+        defaultMode: normalizeMode(loaded.approvalPolicy?.defaultMode),
+        steps: loaded.approvalPolicy?.steps && typeof loaded.approvalPolicy.steps === "object" ? loaded.approvalPolicy.steps : {},
+      },
+      failurePolicy: {
+        retryBudget: Number.isInteger(loaded.failurePolicy?.retryBudget) ? Math.max(0, loaded.failurePolicy.retryBudget) : 2,
+        allowFallbackStep: loaded.failurePolicy?.allowFallbackStep !== false,
+        fallbackStepIndex: Number.isInteger(loaded.failurePolicy?.fallbackStepIndex) ? Math.max(0, loaded.failurePolicy.fallbackStepIndex) : 0,
+      },
+      wipLimits: loaded.wipLimits && typeof loaded.wipLimits === "object" ? loaded.wipLimits : {},
     };
   }
 }
@@ -105,12 +126,21 @@ function repairDbState(parsed) {
 }
 
 function loadDb() {
-  const parsed = repairDbState(loadJsonWithRecovery(DB_FILE, { nextId: 1, queue: [], tickets: [] }));
+  const loaded = loadJsonWithRecovery(DB_FILE, { nextId: 1, queue: [], tickets: [], timelineEvents: [] });
+  const parsed = repairDbState(loaded);
   nextId = parsed.nextId;
   queue.push(...parsed.queue.filter((id) => !tickets[id]));
+  if (Array.isArray(loaded.timelineEvents)) timelineEvents.push(...loaded.timelineEvents.filter((e) => e && typeof e === "object"));
 
   for (const t of parsed.tickets) {
-    tickets[t.id] = { ...t, proc: null };
+    tickets[t.id] = {
+      ...t,
+      approvals: t.approvals || {},
+      failure: t.failure || { retryUsedByStep: {} },
+      createdAt: t.createdAt || Date.now(),
+      updatedAt: t.updatedAt || Date.now(),
+      proc: null,
+    };
     if (tickets[t.id].pendingAction && !tickets[t.id].pendingAction.createdAt) {
       tickets[t.id].pendingAction = createPendingAction(
         tickets[t.id].pendingAction.type,
@@ -130,6 +160,7 @@ function saveDb() {
   const data = {
     nextId,
     queue,
+    timelineEvents,
     tickets: Object.values(tickets).map(({ proc, ...rest }) => rest),
   };
   writeJsonAtomic(DB_FILE, data);
@@ -200,17 +231,52 @@ function isPendingActionExpired(pendingAction) {
   return Date.now() > pendingAction.expiresAt;
 }
 
-function createRecoveryPendingAction(reason, prompt) {
-  return createPendingAction(
-    "selection",
-    prompt,
-    [
-      { id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } },
-      { id: "advance", label: "다음 단계로 진행", payload: { advance: true } },
-      { id: "halt", label: "중단 유지", payload: { halt: true } },
-    ],
-    { reason, source: "recovery" }
-  );
+function getApprovalMode(ticket) {
+  const skill = config.pipeline[ticket.currentStep];
+  if (!skill) return "auto";
+  return normalizeMode(config.approvalPolicy?.steps?.[skill] || config.approvalPolicy?.defaultMode || "auto");
+}
+
+function addTimelineEvent(event) {
+  const normalized = {
+    id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: Date.now(),
+    ...event,
+  };
+  timelineEvents.push(normalized);
+  const over = timelineEvents.length - 2000;
+  if (over > 0) timelineEvents.splice(0, over);
+  emitEvent("timeline_event", normalized);
+}
+
+function buildFailureEscalation(ticket, reason) {
+  const step = ticket.currentStep;
+  const used = ticket.failure?.retryUsedByStep?.[step] || 0;
+  const retryBudget = Math.max(0, Number(config.failurePolicy?.retryBudget || 0));
+  const retryRemaining = Math.max(0, retryBudget - used);
+  return {
+    reason,
+    retryBudget,
+    retryUsed: used,
+    retryRemaining,
+    fallbackAllowed: Boolean(config.failurePolicy?.allowFallbackStep),
+    fallbackStepIndex: Number.isInteger(config.failurePolicy?.fallbackStepIndex) ? config.failurePolicy.fallbackStepIndex : 0,
+  };
+}
+
+function createRecoveryPendingAction(ticket, reason, prompt) {
+  const escalation = buildFailureEscalation(ticket, reason);
+  const options = [];
+  if (escalation.retryRemaining > 0) {
+    options.push({ id: "retry", label: `현재 단계 재시도 (${escalation.retryRemaining}회 남음)`, payload: { rerunCurrentStep: true } });
+  }
+  if (escalation.fallbackAllowed) {
+    options.push({ id: "fallback", label: `fallback 단계(${escalation.fallbackStepIndex + 1})로 이동`, payload: { fallback: true } });
+  }
+  options.push({ id: "advance", label: "다음 단계로 진행", payload: { advance: true } });
+  options.push({ id: "halt", label: "중단 유지", payload: { halt: true } });
+
+  return createPendingAction("selection", prompt, options, { reason, source: "recovery", escalation });
 }
 
 function addArtifact(ticket, artifact) {
@@ -230,13 +296,29 @@ function addArtifact(ticket, artifact) {
 }
 
 function updateSummary(ticket) {
-  const lines = ticket.log.split("\n").slice(-80);
-  const commitLine = [...lines].reverse().find((l) => /\b[0-9a-f]{7,40}\b/.test(l) || /^commit\s+/i.test(l));
-  const issueLine = [...lines].reverse().find((l) => /(error|fail|blocked|issue)/i.test(l));
+  const lines = (ticket.log || "").split("\n").slice(-120);
+  const reversed = [...lines].reverse();
+  const commitLine = reversed.find((l) => /\b[0-9a-f]{7,40}\b/.test(l) || /^commit\s+/i.test(l));
+  const diffLine = reversed.find((l) => /(diff --git|\+\+\+\s+b\/|---\s+a\/)/i.test(l));
+  const testLine = reversed.find((l) => /(test(s)?\s+(passed|failed)|\bPASS\b|\bFAIL\b|failing tests?)/i.test(l));
+  const issueLine = reversed.find((l) => /(error|fail|blocked|issue|exception|timeout)/i.test(l));
+  const rootCause = reversed.find((l) => /(because|due to|root cause|원인|dependency|permission|network)/i.test(l));
+
+  const escalation = ticket.pendingAction?.metadata?.escalation;
+  const nextAction = ticket.pendingAction?.prompt
+    || (ticket.status === TASK_STATUS.REVIEW ? "review and advance" : "-");
+  const recommendation = escalation
+    ? (escalation.retryRemaining > 0 ? `retry 가능 (${escalation.retryRemaining}회)` : "fallback 또는 halt 권장")
+    : nextAction;
+
   ticket.summary = {
     latestCommit: commitLine || "-",
+    latestDiff: diffLine || "-",
+    testResult: testLine || "-",
     issue: issueLine || "-",
-    nextAction: ticket.pendingAction?.prompt || (ticket.status === TASK_STATUS.REVIEW ? "review and advance" : "-"),
+    rootCause: rootCause || issueLine || "-",
+    nextAction,
+    recommendation,
   };
 }
 
@@ -253,10 +335,17 @@ function emitEvent(event, payload = {}) {
 }
 
 function emitTicket(ticket) {
+  ticket.updatedAt = Date.now();
   updateSummary(ticket);
   saveDb();
   broadcast("ticket", sanitizeTicket(ticket));
   emitEvent("task_lifecycle", { ticketId: ticket.id, status: ticket.status, currentStep: ticket.currentStep });
+  addTimelineEvent({
+    ticketId: ticket.id,
+    type: "ticket_transition",
+    status: ticket.status,
+    currentStep: ticket.currentStep,
+  });
 }
 
 function resolveEventPendingAction(ev) {
@@ -294,14 +383,10 @@ function applyRedline(ticket, input = {}) {
   ticket.status = TASK_STATUS.HALTED;
   metrics.redlineHalts += 1;
   emitEvent("redline_event", { ticketId: ticket.id, reason: result.reason, kind: "halt" });
-  ticket.pendingAction = createPendingAction(
-    "selection",
-    `Redline halt: ${result.reason}`,
-    [
-      { id: "retry", label: "현재 단계 재시도", payload: { rerunCurrentStep: true } },
-      { id: "halt", label: "중단 유지", payload: { halt: true } },
-    ],
-    { reason: result.reason, source: "redline" }
+  ticket.pendingAction = createRecoveryPendingAction(
+    ticket,
+    result.reason,
+    `Redline halt: ${result.reason}`
   );
 }
 
@@ -310,8 +395,9 @@ function expireStalePendingAction(ticket) {
   ticket.status = TASK_STATUS.BLOCKED;
   metrics.pendingActionsExpired += 1;
   ticket.pendingAction = createRecoveryPendingAction(
+    ticket,
     "stale_action_expired",
-    "이전 액션 요청이 만료되었습니다. 현재 단계를 다시 시도하거나 다음 단계로 진행/중단을 선택하세요."
+    "이전 액션 요청이 만료되었습니다. 현재 단계를 다시 시도하거나 fallback/다음 단계 진행/중단을 선택하세요."
   );
   return true;
 }
@@ -434,9 +520,31 @@ function startStep(id, options = {}) {
       return;
     }
 
-    if (!ticket.pendingAction && code !== 0) ticket.status = TASK_STATUS.BLOCKED;
-    else if (!ticket.pendingAction) ticket.status = TASK_STATUS.REVIEW;
-    else ticket.status = TASK_STATUS.AWAITING_INPUT;
+    if (!ticket.pendingAction && code !== 0) {
+      ticket.status = TASK_STATUS.BLOCKED;
+      ticket.pendingAction = createRecoveryPendingAction(ticket, "step_exit_nonzero", "실행이 비정상 종료되었습니다. 재시도/fallback/다음 단계 진행/중단 중 선택하세요.");
+    } else if (!ticket.pendingAction) {
+      const mode = getApprovalMode(ticket);
+      ticket.approvals[ticket.currentStep] = {
+        mode,
+        state: mode === "manual" ? "pending" : "approved",
+        updatedAt: Date.now(),
+      };
+      if (mode === "manual") {
+        ticket.status = TASK_STATUS.AWAITING_INPUT;
+        ticket.pendingAction = createPendingAction(
+          "approval",
+          `수동 승인 필요: ${config.pipeline[ticket.currentStep]} 단계 결과를 승인할까요?`,
+          [
+            { id: "approve", label: "승인", payload: { approve: true } },
+            { id: "reject", label: "반려", payload: { reject: true } },
+          ],
+          { reason: "manual_approval_required", source: "approval_gate", step: ticket.currentStep }
+        );
+      } else {
+        ticket.status = TASK_STATUS.REVIEW;
+      }
+    } else ticket.status = TASK_STATUS.AWAITING_INPUT;
 
     emitTicket(ticket);
     schedule();
@@ -449,7 +557,7 @@ function startStep(id, options = {}) {
     metrics.stepErrors += 1;
     processText(ticket, `\n\n--- 에러: ${err.message} ---`);
     ticket.status = TASK_STATUS.BLOCKED;
-    ticket.pendingAction = createRecoveryPendingAction("process_error", "실행 중 오류가 발생했습니다. 재시도/다음 단계 진행/중단 중 선택하세요.");
+    ticket.pendingAction = createRecoveryPendingAction(ticket, "process_error", "실행 중 오류가 발생했습니다. 재시도/fallback/다음 단계 진행/중단 중 선택하세요.");
     emitTicket(ticket);
     schedule();
   });
@@ -489,8 +597,11 @@ function addTicket(jiraTicket) {
     pendingAction: null,
     artifacts: [],
     redline: createRedlineState(),
-    summary: { latestCommit: "-", issue: "-", nextAction: "-" },
+    approvals: {},
+    failure: { retryUsedByStep: {} },
+    summary: { latestCommit: "-", latestDiff: "-", testResult: "-", issue: "-", rootCause: "-", nextAction: "-", recommendation: "-" },
     createdAt: Date.now(),
+    updatedAt: Date.now(),
     proc: null,
   };
   tickets[id] = t;
@@ -506,6 +617,11 @@ function moveToNextStep(id) {
   if (!t) return { error: "not found", code: 404 };
   if (![TASK_STATUS.REVIEW, TASK_STATUS.AWAITING_INPUT, TASK_STATUS.BLOCKED, TASK_STATUS.HALTED].includes(t.status)) {
     return { error: "다음 단계로 진행할 수 없는 상태입니다.", code: 400 };
+  }
+
+  const approval = t.approvals?.[t.currentStep];
+  if (approval?.mode === "manual" && approval.state !== "approved") {
+    return { error: "수동 승인 전에는 다음 단계로 진행할 수 없습니다.", code: 400 };
   }
 
   const next = t.currentStep + 1;
@@ -535,7 +651,7 @@ function validateActionResolutionPayload(payload, pending) {
 
   const actionId = payload.actionId.trim();
   const selected = pending.options?.find((o) => o.id === actionId) || null;
-  const builtin = ["retry", "halt", "advance"];
+  const builtin = ["retry", "halt", "advance", "approve", "reject", "fallback"];
 
   if (!selected && !builtin.includes(actionId)) {
     return { error: `알 수 없는 actionId: ${actionId}` };
@@ -560,8 +676,32 @@ function resolvePendingAction(ticket, payload = {}) {
 
   const mergedPayload = { ...(validated.selected?.payload || {}), ...(validated.metadata || {}) };
 
+  if (validated.actionId === "approve" || mergedPayload.approve) {
+    ticket.approvals[ticket.currentStep] = { mode: "manual", state: "approved", updatedAt: Date.now() };
+    ticket.pendingAction = null;
+    return moveToNextStep(ticket.id);
+  }
+  if (validated.actionId === "reject" || mergedPayload.reject) {
+    ticket.approvals[ticket.currentStep] = { mode: "manual", state: "rejected", updatedAt: Date.now() };
+    ticket.status = TASK_STATUS.BLOCKED;
+    ticket.pendingAction = createRecoveryPendingAction(ticket, "manual_approval_rejected", "승인이 반려되었습니다. 수정 후 재시도/fallback/다음 단계 진행/중단 중 선택하세요.");
+    emitTicket(ticket);
+    return sanitizeTicket(ticket);
+  }
   if (validated.actionId === "advance" || mergedPayload.advance) return moveToNextStep(ticket.id);
   if (validated.actionId === "retry" || mergedPayload.rerunCurrentStep) {
+    const step = ticket.currentStep;
+    ticket.failure.retryUsedByStep[step] = (ticket.failure.retryUsedByStep[step] || 0) + 1;
+    ticket.status = TASK_STATUS.QUEUED;
+    ticket.pendingAction = null;
+    queue.push(ticket.id);
+    emitTicket(ticket);
+    schedule();
+    return sanitizeTicket(ticket);
+  }
+  if (validated.actionId === "fallback" || mergedPayload.fallback) {
+    const fallbackStepIndex = Number.isInteger(config.failurePolicy?.fallbackStepIndex) ? config.failurePolicy.fallbackStepIndex : 0;
+    ticket.currentStep = Math.max(0, Math.min(fallbackStepIndex, Math.max(0, config.pipeline.length - 1)));
     ticket.status = TASK_STATUS.QUEUED;
     ticket.pendingAction = null;
     queue.push(ticket.id);
@@ -597,10 +737,18 @@ function sanitizeTicket(t, pipeline = config.pipeline || []) {
   const { proc, ...rest } = t;
   const inRange = Number.isInteger(rest.currentStep) && rest.currentStep >= 0 && rest.currentStep < pipeline.length;
   const currentSkill = inRange ? pipeline[rest.currentStep] : null;
+  const ageMs = Date.now() - (rest.updatedAt || rest.createdAt || Date.now());
+  const isStale = ageMs > 30 * 60 * 1000;
+  const escalation = rest.pendingAction?.metadata?.escalation || null;
   return {
     ...rest,
     currentSkill,
     isDone: rest.status === TASK_STATUS.DONE,
+    isStale,
+    blockedPriority: rest.status === TASK_STATUS.BLOCKED || rest.status === TASK_STATUS.HALTED
+      ? (escalation?.retryRemaining > 0 ? "high" : "critical")
+      : null,
+    isPinnedBlocked: rest.status === TASK_STATUS.BLOCKED || rest.status === TASK_STATUS.HALTED,
   };
 }
 
@@ -664,6 +812,20 @@ const server = http.createServer((req, res) => {
       const data = JSON.parse(body || "{}");
       if (data.projectPath !== undefined) config.projectPath = data.projectPath;
       if (data.pipeline !== undefined) config.pipeline = data.pipeline;
+      if (data.approvalPolicy !== undefined) {
+        config.approvalPolicy = {
+          defaultMode: normalizeMode(data.approvalPolicy?.defaultMode),
+          steps: data.approvalPolicy?.steps && typeof data.approvalPolicy.steps === "object" ? data.approvalPolicy.steps : {},
+        };
+      }
+      if (data.failurePolicy !== undefined) {
+        config.failurePolicy = {
+          retryBudget: Number.isInteger(data.failurePolicy?.retryBudget) ? Math.max(0, data.failurePolicy.retryBudget) : config.failurePolicy.retryBudget,
+          allowFallbackStep: data.failurePolicy?.allowFallbackStep !== false,
+          fallbackStepIndex: Number.isInteger(data.failurePolicy?.fallbackStepIndex) ? Math.max(0, data.failurePolicy.fallbackStepIndex) : config.failurePolicy.fallbackStepIndex,
+        };
+      }
+      if (data.wipLimits !== undefined && typeof data.wipLimits === "object") config.wipLimits = data.wipLimits;
       saveConfig();
       json(res, { ...config, availableSkills: config.projectPath ? scanSkills(config.projectPath) : [] });
     });
@@ -683,7 +845,7 @@ const server = http.createServer((req, res) => {
     const list = Object.values(tickets)
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((ticket) => sanitizeTicket(ticket, config.pipeline));
-    return json(res, { pipeline: config.pipeline, pipelineColumns, queue, running: Array.from(running), tickets: list });
+    return json(res, { pipeline: config.pipeline, pipelineColumns, queue, running: Array.from(running), wipLimits: config.wipLimits || {}, tickets: list });
   }
 
   if (url.pathname === "/api/tickets" && req.method === "POST") {
@@ -748,10 +910,21 @@ const server = http.createServer((req, res) => {
     t.proc = null;
     running.delete(t.id);
     t.status = TASK_STATUS.HALTED;
-    t.pendingAction = createRecoveryPendingAction("stopped_by_user", "작업이 중지되었습니다. 재시도/다음 단계 진행/중단 유지를 선택하세요.");
+    t.pendingAction = createRecoveryPendingAction(t, "stopped_by_user", "작업이 중지되었습니다. 재시도/fallback/다음 단계 진행/중단 유지를 선택하세요.");
     emitTicket(t);
     schedule();
     return json(res, sanitizeTicket(t));
+  }
+
+  if (url.pathname === "/api/timeline" && req.method === "GET") {
+    const ticketId = url.searchParams.get("ticketId");
+    const q = (url.searchParams.get("q") || "").toLowerCase();
+    const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 100)));
+    const filtered = timelineEvents
+      .filter((ev) => (!ticketId || ev.ticketId === ticketId) && (!q || JSON.stringify(ev).toLowerCase().includes(q)))
+      .slice(-limit)
+      .reverse();
+    return json(res, { events: filtered });
   }
 
   const deleteMatch = url.pathname.match(/^\/api\/tickets\/(\d+)$/);

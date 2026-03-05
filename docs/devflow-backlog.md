@@ -105,3 +105,46 @@
   - 상태 기반 보드는 `Board view` 토글(status/skill)로 옵션 유지
   - 백엔드 응답에 `pipelineColumns`, `ticket.currentSkill`, `ticket.isDone` 메타데이터 추가
   - 테스트 추가: `test/kanban-skill-columns.test.js`
+
+## T014 (P0) Approval gate policy engine (auto/manual)
+- 상태: DONE
+- 결과:
+  - config에 `approvalPolicy`(`defaultMode`, step별 override) 도입
+  - step 완료 후 approval mode 평가: `auto`는 즉시 REVIEW, `manual`은 승인 pendingAction 생성
+  - manual 승인(`approve`) 전에는 `next` 전이 불가(enforce transition)
+  - manual 반려(`reject`) 시 BLOCKED + 복구 액션으로 전환
+
+## T015 (P0) Failure auto-response policy (retry/fallback/halt)
+- 상태: DONE
+- 결과:
+  - config에 `failurePolicy`(`retryBudget`, `allowFallbackStep`, `fallbackStepIndex`) 도입
+  - recovery/redline/process_error 공통 정책화: retry budget, fallback option, escalation metadata 포함
+  - retry/fallback/advance/halt action 처리 경로 확장 및 step별 retry 사용량 추적
+
+## T016 (P0) Claude interaction compatibility testpack (3~5 combos)
+- 상태: DONE
+- 결과:
+  - parser/runtime 호환성 검증 테스트팩 추가: `test/p0-p1-policy.test.js`
+  - manual approval action payload 처리 검증
+  - failure recovery escalation metadata/option 조합 검증
+  - stale/blocked sanitize shape 검증(런타임 UI 호환성 보호)
+
+## T017 (P1) Card detail panel summary 확장
+- 상태: DONE
+- 결과:
+  - summary에 `latestDiff`, `testResult`, `rootCause`, `recommendation` 추가
+  - index panel에 최신 diff/test/root-cause/next-action/recommendation 표출
+
+## T018 (P1) Skill-column operability 강화
+- 상태: DONE
+- 결과:
+  - config 기반 `wipLimits` 추가 및 컬럼별 WIP 표시/초과 경고
+  - stale 카드 시각 강조(`isStale`) 추가
+  - blocked/halted 카드 pin/priority 렌더링(`isPinnedBlocked`, `blockedPriority`)
+
+## T019 (P1) Event timeline persistence/search
+- 상태: DONE
+- 결과:
+  - ticket transition 타임라인 이벤트를 DB(`timelineEvents`)에 영속 저장
+  - 검색 endpoint 추가: `GET /api/timeline?ticketId=&q=&limit=`
+  - SSE `timeline_event` 이벤트 방출 추가

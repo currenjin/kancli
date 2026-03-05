@@ -16,6 +16,8 @@
     .grid { display: grid; gap: 10px; margin-top: 12px; overflow-x: auto; }
     .ticket { margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; background: #fff; }
     .ticket.done { border-color: #86efac; background: #f0fdf4; }
+    .ticket.stale { border-color: #f59e0b; box-shadow: 0 0 0 1px #fcd34d inset; }
+    .ticket.pinned { border-left: 4px solid #ef4444; }
     .muted { color: #64748b; font-size: 12px; }
     .badge { font-size: 11px; border-radius: 999px; padding: 2px 8px; background: #e2e8f0; }
     .badge.done { background: #bbf7d0; color: #166534; }
@@ -62,7 +64,7 @@
   </div>
 
 <script>
-let state = { pipeline: [], pipelineColumns: [], tickets: [] };
+let state = { pipeline: [], pipelineColumns: [], wipLimits: {}, tickets: [] };
 let availableSkills = [];
 let editPipeline = [];
 let openLogs = new Set();
@@ -108,6 +110,8 @@ function ticketBadges(t) {
   if (t.status === 'halted') badges.push(`<span class='badge danger'>halted</span>`);
   if (t.status === 'review') badges.push(`<span class='badge warn'>review</span>`);
   if (t.pendingAction) badges.push(`<span class='badge warn'>pending-action</span>`);
+  if (t.isStale) badges.push(`<span class='badge warn'>stale</span>`);
+  if (t.blockedPriority) badges.push(`<span class='badge danger'>${esc(t.blockedPriority)}</span>`);
   return badges.join(' ');
 }
 
@@ -126,11 +130,14 @@ function ticketHtml(t) {
   const summary = t.summary || {};
   const detail = `<div class='muted'>skill: ${esc(t.currentSkill || '-')}</div>
     <div class='muted'>latest commit: ${esc(summary.latestCommit||'-')}</div>
-    <div class='muted'>issue: ${esc(summary.issue||'-')}</div>
-    <div class='muted'>next action: ${esc(summary.nextAction||'-')}</div>`;
+    <div class='muted'>latest diff: ${esc(summary.latestDiff||'-')}</div>
+    <div class='muted'>test: ${esc(summary.testResult||'-')}</div>
+    <div class='muted'>root cause: ${esc(summary.rootCause||'-')}</div>
+    <div class='muted'>next action: ${esc(summary.nextAction||'-')}</div>
+    <div class='muted'>recommendation: ${esc(summary.recommendation||'-')}</div>`;
 
   const log = openLogs.has(t.id) ? `<div class='log'>${esc(t.log || '')}</div>` : '';
-  return `<div class='ticket ${t.status === 'done' || t.isDone ? 'done' : ''}'>
+  return `<div class='ticket ${t.status === 'done' || t.isDone ? 'done' : ''} ${t.isStale ? 'stale' : ''} ${t.isPinnedBlocked ? 'pinned' : ''}'>
     <div><b>${esc(t.jiraTicket)}</b> ${ticketBadges(t)}</div>
     <div class='muted'>step ${t.currentStep + 1}/${Math.max(state.pipeline.length,1)} | ${esc(t.branchName || '-')}</div>
     ${detail}
@@ -158,8 +165,11 @@ function render() {
   board.style.gridTemplateColumns = `repeat(${Math.max(columns.length, 1)}, minmax(260px, 1fr))`;
   board.innerHTML = columns.map(c => {
     const tickets = groups[c.id] || [];
+    const limit = state.wipLimits?.[c.id] ?? state.wipLimits?.[c.skill] ?? null;
+    const over = Number.isInteger(limit) && tickets.length > limit;
+    const wipText = Number.isInteger(limit) ? `WIP ${tickets.length}/${limit}${over ? ' ⚠' : ''}` : `${tickets.length}`;
     const content = tickets.length ? tickets.map(ticketHtml).join('') : `<div class='column-empty'>비어 있음</div>`;
-    return `<div class='card'><div class='column-title'><b>${esc(c.name)}</b><span class='muted'>${tickets.length}</span></div>${content}</div>`;
+    return `<div class='card'><div class='column-title'><b>${esc(c.name)}</b><span class='muted'>${wipText}</span></div>${content}</div>`;
   }).join('');
 }
 
