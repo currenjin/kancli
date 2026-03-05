@@ -114,6 +114,16 @@
   - 드래그 대상 하이라이트(`drop-target`)와 안내문구 추가
   - 저장 전 preview(`Preview before save`)와 즉시 동기화
 
+## T032 (P1) Dashboard visual polish pass 2 (minimal UI cleanup)
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - 헤더/설정/보드 카드의 시각 노이즈 축소(연한 border/그림자, 간격 재정렬, muted 톤 통일)
+  - ticket id/skill/status badge 타이포 계층 재정의(크기/letter-spacing/캡슐 배지 정돈)
+  - 버튼 스타일 primary/secondary/danger 일관화 및 혼합 인라인 스타일 축소
+  - Pipeline editor drag handle 강조 + compact row 스타일 적용
+  - 칸반 카드 메타/액션/pending 영역 정리로 가독성 개선
+  - 기능 로직 변경 없이 UI/CSS 중심으로 반영
 
 ## T014 (P0) Approval gate policy engine (auto/manual)
 - 상태: DONE
