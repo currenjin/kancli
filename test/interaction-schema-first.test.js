@@ -79,3 +79,9 @@ test('inferSelectionFromTextPrompt infers command options from inline backticks'
   assert.equal(pending.type, 'selection');
   assert.deepEqual(pending.options.map(o => o.id), ['go', 'commit', 'refactor']);
 });
+
+test('inferSelectionFromTextPrompt infers commands from plain text keywords', () => {
+  const pending = inferSelectionFromTextPrompt('명령을 입력해 주세요: go, commit, refactor');
+  assert.equal(pending.type, 'selection');
+  assert.deepEqual(pending.options.map(o => o.id), ['go', 'commit', 'refactor']);
+});

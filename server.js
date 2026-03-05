@@ -491,12 +491,35 @@ function hasQuestionSignal(value) {
 function inferSelectionFromTextPrompt(text) {
   if (typeof text !== "string" || !text.trim()) return null;
 
-  // Generic command-like prompt: `go`, `commit`, `refactor`
-  const tickMatches = [...text.matchAll(/`([^`\n]{1,40})`/g)].map((m) => String(m[1] || "").trim()).filter(Boolean);
-  const unique = [...new Set(tickMatches)].filter((v) => /^[a-zA-Z0-9_-]{2,40}$/.test(v));
-  if (unique.length < 2) return null;
+  const out = [];
+  const add = (id) => {
+    const v = String(id || "").trim();
+    if (!/^[a-zA-Z0-9_-]{2,40}$/.test(v)) return;
+    if (!out.includes(v)) out.push(v);
+  };
 
-  const options = unique.map((id) => ({ id, label: id }));
+  // 1) Backtick style: `go`, `commit`
+  for (const m of text.matchAll(/`([^`\n]{1,40})`/g)) add(m[1]);
+
+  // 2) Bold list style: **go**
+  if (out.length < 2) {
+    for (const m of text.matchAll(/\*\*([^*\n]{1,40})\*\*/g)) add(m[1]);
+  }
+
+  // 3) Fallback keyword extraction for common command prompts
+  if (out.length < 2) {
+    const lower = text.toLowerCase();
+    if (/\bgo\b/.test(lower)) add("go");
+    if (/\bcommit\b/.test(lower)) add("commit");
+    if (/\brefactor\b/.test(lower)) add("refactor");
+    if (/\badvance\b/.test(lower)) add("advance");
+    if (/\bretry\b/.test(lower)) add("retry");
+    if (/\bhalt\b/.test(lower)) add("halt");
+  }
+
+  if (out.length < 2) return null;
+
+  const options = out.map((id) => ({ id, label: id }));
   return createPendingAction(
     "selection",
     "명령을 선택하세요",
