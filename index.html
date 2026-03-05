@@ -337,7 +337,7 @@ function renderPendingActions(t) {
     ? `<select id='pending-select-${t.id}'>${options.map(o => `<option value='${escAttr(o.id)}'>${esc(o.label||o.id)}</option>`).join('')}</select>`
     : '';
   const textBox = ['text','input','free_text'].includes(pa.type)
-    ? `<input id='pending-input-${t.id}' class='grow' placeholder='응답 입력'/>`
+    ? `<input id='pending-input-${t.id}' class='grow' placeholder='응답 입력' onkeydown="if(event.key==='Enter'){submitPendingResponse('${t.id}')}"/>`
     : '';
   const defaultButtons = options.map(o => {
     const cls = prominentApproval && ['approve','reject'].includes(o.id) ? (o.id === 'reject' ? 'danger' : 'primary') : '';
@@ -528,13 +528,25 @@ async function saveConfig() {
 async function refresh() { const res = await fetch('/api/tickets'); state = await res.json(); pendingWipLimits = { ...(state.wipLimits || pendingWipLimits || {}) }; render(); }
 async function scanSkills() { const p = document.getElementById('project-path').value.trim(); const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(p)}`); const data = await res.json(); availableSkills = data.skills || []; render(); }
 async function addTicket() { const jiraTicket = document.getElementById('ticket-input').value.trim(); if (!jiraTicket) return; await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jiraTicket }) }); document.getElementById('ticket-input').value = ''; refresh(); }
-async function resolveAction(id, actionId) { await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })}); refresh(); }
+async function resolveAction(id, actionId) {
+  const res = await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) alert(data.error || '응답 제출 실패');
+  refresh();
+}
 async function submitPendingResponse(id) {
   const actionId = document.getElementById(`pending-select-${id}`)?.value;
-  const input = document.getElementById(`pending-input-${id}`)?.value || '';
+  const inputEl = document.getElementById(`pending-input-${id}`);
+  const input = inputEl?.value || '';
   const payload = { actionId, input };
   if (!payload.actionId) delete payload.actionId;
-  await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  const res = await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(data.error || '응답 제출 실패');
+    return;
+  }
+  if (inputEl) inputEl.value = '';
   refresh();
 }
 async function nextStep(id) { await fetch(`/api/tickets/${id}/next`, { method:'POST' }); refresh(); }
