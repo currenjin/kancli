@@ -456,6 +456,31 @@ function resolveEventArtifact(ev) {
   };
 }
 
+function resolveTextPendingAction(text) {
+  if (typeof text !== "string" || !text.trim()) return null;
+
+  // Common Claude ask pattern (e.g., "다음 명령을 선택하세요" + go/commit/refactor)
+  if (!text.includes("다음 명령을 선택하세요")) return null;
+
+  const optionRegex = /-\s*\*\*([^*]+)\*\*\s*-/g;
+  const options = [];
+  let m;
+  while ((m = optionRegex.exec(text)) !== null) {
+    const id = String(m[1] || "").trim();
+    if (!id) continue;
+    if (!options.find((o) => o.id === id)) options.push({ id, label: id });
+  }
+
+  if (!options.length) return null;
+
+  return createPendingAction(
+    "selection",
+    "다음 명령을 선택하세요",
+    options,
+    { source: "runtime_text_prompt", reason: "ask_user_question" }
+  );
+}
+
 function applyRedline(ticket, input = {}) {
   const result = evaluateRedline(ticket.redline, input);
   ticket.redline = result.state;
@@ -487,6 +512,9 @@ function processText(ticket, text) {
   if (!text) return;
   ticket.log += text;
   applyRedline(ticket, { text });
+
+  const textPending = resolveTextPendingAction(text);
+  if (textPending) setPendingAction(ticket, textPending, "runtime_text");
 }
 
 function processContentBlocks(ticket, blocks) {
