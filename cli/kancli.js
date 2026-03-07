@@ -6,7 +6,7 @@ const path = require("path");
 const readline = require("readline");
 const { spawn } = require("child_process");
 const { KancliClient } = require("../lib/kancli-client");
-const { renderBoard, toHumanActionLabel, resolvePrompt } = require("../lib/kancli-board");
+const { renderBoard, getAllTickets, toHumanActionLabel, resolvePrompt } = require("../lib/kancli-board");
 
 const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL || "http://localhost:3000";
 const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
@@ -139,7 +139,9 @@ async function commandBoard() {
 
   let board = status;
   let pendingCursor = 0;
-  let mode = "board"; // board | selection | text
+  let ticketCursor = 0;
+  let focus = "pending"; // "pending" | "tickets"
+  let mode = "board"; // board | selection | text | add
   let message = "";
   let selectedOption = 0;
   let inputBuffer = "";
@@ -150,6 +152,7 @@ async function commandBoard() {
   let closeSse = null;
 
   const getPending = () => (board.tickets || []).filter((t) => t.pendingAction);
+  const getAll = () => getAllTickets(board);
 
   const resetPromptState = () => {
     mode = "board";
@@ -160,10 +163,14 @@ async function commandBoard() {
 
   const draw = () => {
     process.stdout.write("\x1Bc");
-    process.stdout.write(`${renderBoard(board, { pendingCursor, updatedAt: Date.now() })}\n`);
+    process.stdout.write(`${renderBoard(board, { pendingCursor, ticketCursor, focus, updatedAt: Date.now() })}\n`);
 
     const pending = getPending();
-    if (mode !== "board" && activeTicket) {
+    if (mode === "add") {
+      process.stdout.write("\n--- add ticket ---\n");
+      process.stdout.write("ticket id (Enter submit, Esc cancel):\n");
+      process.stdout.write(`> ${inputBuffer}\n`);
+    } else if (mode !== "board" && activeTicket) {
       const action = activeTicket.pendingAction || {};
       process.stdout.write("\n--- answer panel ---\n");
       process.stdout.write(`#${activeTicket.id} ${activeTicket.jiraTicket}\n`);
@@ -178,8 +185,14 @@ async function commandBoard() {
         process.stdout.write("\ntext input (Enter submit, Esc cancel):\n");
         process.stdout.write(`> ${inputBuffer}\n`);
       }
-    } else if (pending.length) {
+    } else if (focus === "pending" && pending.length) {
       process.stdout.write(`\nEnter로 #${pending[Math.min(pendingCursor, pending.length - 1)]?.id} 응답 패널 열기\n`);
+    } else if (focus === "tickets") {
+      const all = getAll();
+      if (all.length) {
+        const t = all[Math.min(ticketCursor, all.length - 1)];
+        process.stdout.write(`\n#${t.id} ${t.jiraTicket} (${t.status}) | n: next  s: stop  d: delete  Enter: answer\n`);
+      }
     }
 
     if (message) process.stdout.write(`\n${message}\n`);
@@ -190,15 +203,16 @@ async function commandBoard() {
     try {
       board = await client.status();
       const pending = getPending();
+      const all = getAll();
       if (!pending.length) {
         pendingCursor = 0;
-        if (mode !== "board") {
+        if (mode !== "board" && mode !== "add") {
           message = "pending action resolved.";
           resetPromptState();
         }
       } else {
         pendingCursor = Math.min(pendingCursor, pending.length - 1);
-        if (mode !== "board" && activeTicket) {
+        if (mode !== "board" && mode !== "add" && activeTicket) {
           const matched = pending.find((p) => String(p.id) === String(activeTicket.id));
           if (matched) activeTicket = matched;
           else {
@@ -207,6 +221,8 @@ async function commandBoard() {
           }
         }
       }
+      if (all.length) ticketCursor = Math.min(ticketCursor, all.length - 1);
+      else ticketCursor = 0;
       if (hint) message = hint;
     } catch (err) {
       message = `refresh failed: ${err.message}`;
@@ -222,6 +238,46 @@ async function commandBoard() {
       return;
     }
     activeTicket = pending[Math.min(pendingCursor, pending.length - 1)];
+    selectedOption = 0;
+    inputBuffer = "";
+
+    const pa = activeTicket.pendingAction || {};
+    const isGenericPrompt = !pa.prompt || /^(입력이 필요합니다|응답이 필요합니다)\.?$/.test(pa.prompt);
+    const needsInference = (pa.type === "selection" && !(pa.options || []).length) || isGenericPrompt;
+    if (needsInference) {
+      try {
+        const detail = await client.ticketLog(activeTicket.id);
+        const inferredPrompt = extractQuestionFromLog(detail.log || "");
+        const inferredOptions = inferCommandOptionsFromText(inferredPrompt);
+        activeTicket = {
+          ...activeTicket,
+          pendingAction: {
+            ...pa,
+            prompt: isGenericPrompt ? (inferredPrompt || pa.prompt) : pa.prompt,
+            options: inferredOptions.length ? inferredOptions : (pa.options || []),
+          },
+        };
+      } catch {}
+    }
+
+    const textTypes = ["text", "input", "free_text"];
+    const effective = activeTicket.pendingAction || pa;
+    mode = ((effective.options || []).length && !textTypes.includes(effective.type)) ? "selection" : "text";
+    message = "";
+    draw();
+  };
+
+  const openPendingPanelForTicket = async (ticket) => {
+    if (!ticket.pendingAction) {
+      message = `#${ticket.id} has no pending action.`;
+      draw();
+      return;
+    }
+    // sync pendingCursor to match this ticket
+    const pending = getPending();
+    const idx = pending.findIndex((p) => String(p.id) === String(ticket.id));
+    if (idx >= 0) pendingCursor = idx;
+    activeTicket = ticket;
     selectedOption = 0;
     inputBuffer = "";
 
@@ -272,7 +328,6 @@ async function commandBoard() {
       }
       payload.input = inputBuffer;
       if (action.type === "selection") {
-        // fallback for selection prompts where runtime did not provide explicit option list
         payload.actionId = inputBuffer.trim();
       }
     }
@@ -286,6 +341,61 @@ async function commandBoard() {
       await refresh();
     } catch (err) {
       message = `submit failed: ${err.message}`;
+      draw();
+    } finally {
+      isSubmitting = false;
+      draw();
+    }
+  };
+
+  const ticketAction = async (action) => {
+    const all = getAll();
+    if (!all.length) {
+      message = "no tickets.";
+      draw();
+      return;
+    }
+    const t = all[Math.min(ticketCursor, all.length - 1)];
+    isSubmitting = true;
+    draw();
+    try {
+      if (action === "next") {
+        await client.next(t.id);
+        message = `#${t.id} moved to next step.`;
+      } else if (action === "stop") {
+        await client.stop(t.id);
+        message = `#${t.id} stopped.`;
+      } else if (action === "delete") {
+        await client.remove(t.id);
+        message = `#${t.id} deleted.`;
+      }
+      resetPromptState();
+      await refresh();
+    } catch (err) {
+      message = `${action} failed: ${err.message}`;
+      draw();
+    } finally {
+      isSubmitting = false;
+      draw();
+    }
+  };
+
+  const submitAdd = async () => {
+    const ticket = inputBuffer.trim();
+    if (!ticket) {
+      message = "ticket id is required.";
+      draw();
+      return;
+    }
+    isSubmitting = true;
+    draw();
+    try {
+      const created = await client.add(ticket);
+      message = `added #${created.id} ${ticket}`;
+      resetPromptState();
+      await refresh();
+    } catch (err) {
+      message = `add failed: ${err.message}`;
       draw();
     } finally {
       isSubmitting = false;
@@ -309,24 +419,77 @@ async function commandBoard() {
       cleanup();
       return;
     }
+
+    // add mode
+    if (mode === "add") {
+      if (key.name === "escape") {
+        resetPromptState();
+        message = "add cancelled.";
+        draw();
+        return;
+      }
+      if (key.name === "return") {
+        await submitAdd();
+        return;
+      }
+      if (key.name === "backspace") inputBuffer = inputBuffer.slice(0, -1);
+      else if (!key.ctrl && !key.meta && str) inputBuffer += str;
+      draw();
+      return;
+    }
+
     if (mode === "board") {
-      const pending = getPending();
       if (key.name === "q") {
         quit = true;
         cleanup();
         return;
       }
-      if (key.name === "up" && pending.length) pendingCursor = Math.max(0, pendingCursor - 1);
-      else if (key.name === "down" && pending.length) pendingCursor = Math.min(pending.length - 1, pendingCursor + 1);
-      else if (key.name === "return") await openPendingPanel();
-      else if (key.name === "r") await refresh("manual refresh");
-      else if (/^[1-9]$/.test(str || "") && pending.length) {
-        const idx = Number(str) - 1;
-        if (idx >= 0 && idx < pending.length) {
-          pendingCursor = idx;
-          await openPendingPanel();
+
+      // Tab: switch focus
+      if (key.name === "tab") {
+        focus = focus === "pending" ? "tickets" : "pending";
+        message = "";
+        draw();
+        return;
+      }
+
+      // "a": add ticket
+      if (str === "a") {
+        mode = "add";
+        inputBuffer = "";
+        message = "";
+        draw();
+        return;
+      }
+
+      if (focus === "pending") {
+        const pending = getPending();
+        if (key.name === "up" && pending.length) pendingCursor = Math.max(0, pendingCursor - 1);
+        else if (key.name === "down" && pending.length) pendingCursor = Math.min(pending.length - 1, pendingCursor + 1);
+        else if (key.name === "return") await openPendingPanel();
+        else if (key.name === "r") await refresh("manual refresh");
+        else if (/^[1-9]$/.test(str || "") && pending.length) {
+          const idx = Number(str) - 1;
+          if (idx >= 0 && idx < pending.length) {
+            pendingCursor = idx;
+            await openPendingPanel();
+            return;
+          }
+        }
+      } else {
+        // focus === "tickets"
+        const all = getAll();
+        if (key.name === "up" && all.length) ticketCursor = Math.max(0, ticketCursor - 1);
+        else if (key.name === "down" && all.length) ticketCursor = Math.min(all.length - 1, ticketCursor + 1);
+        else if (str === "n") { await ticketAction("next"); return; }
+        else if (str === "s") { await ticketAction("stop"); return; }
+        else if (str === "d") { await ticketAction("delete"); return; }
+        else if (key.name === "return") {
+          const t = all[Math.min(ticketCursor, all.length - 1)];
+          if (t) await openPendingPanelForTicket(t);
           return;
         }
+        else if (key.name === "r") await refresh("manual refresh");
       }
       draw();
       return;
