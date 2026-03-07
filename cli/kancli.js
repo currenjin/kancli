@@ -6,7 +6,7 @@ const path = require("path");
 const readline = require("readline");
 const { spawn } = require("child_process");
 const { KancliClient } = require("../lib/kancli-client");
-const { renderBoard, toHumanActionLabel } = require("../lib/kancli-board");
+const { renderBoard, toHumanActionLabel, resolvePrompt } = require("../lib/kancli-board");
 
 const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL || "http://localhost:3000";
 const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
@@ -167,7 +167,7 @@ async function commandBoard() {
       const action = activeTicket.pendingAction || {};
       process.stdout.write("\n--- answer panel ---\n");
       process.stdout.write(`#${activeTicket.id} ${activeTicket.jiraTicket}\n`);
-      process.stdout.write(`${action.prompt || action.type || "pending action"}\n`);
+      process.stdout.write(`${resolvePrompt(activeTicket)}\n`);
       if ((action.options || []).length) {
         process.stdout.write("\nselect option (↑/↓ or number, Enter submit, Esc cancel):\n");
         (action.options || []).forEach((opt, idx) => {
