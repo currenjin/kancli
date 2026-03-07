@@ -8,10 +8,11 @@ const { KancliClient } = require("../lib/kancli-client");
 const { renderBoard } = require("../lib/kancli-board");
 
 const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL || "http://localhost:3000";
+const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli down\n  kancli restart\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
 }
 
 function parseTicketId(value) {
@@ -48,6 +49,7 @@ async function ensureServerUp() {
         PORT: process.env.PORT || "3000",
       },
     });
+    fs.writeFileSync(PID_FILE, String(child.pid));
     child.unref();
 
     for (let i = 0; i < 20; i += 1) {
@@ -81,6 +83,34 @@ async function commandInit(argv) {
   await client.configSet({ projectPath, pipeline: skills });
   console.log(`initialized project: ${projectPath}`);
   console.log(`detected skills: ${skills.length ? skills.join(' -> ') : '(none)'}`);
+}
+
+function commandDown() {
+  if (!fs.existsSync(PID_FILE)) {
+    console.log(`kancli server pid file not found: ${PID_FILE}`);
+    console.log(`if server is still running, stop manually: pkill -f "node.*server.js"`);
+    return;
+  }
+
+  const pid = Number(fs.readFileSync(PID_FILE, "utf8").trim());
+  if (!Number.isInteger(pid) || pid <= 0) {
+    fs.rmSync(PID_FILE, { force: true });
+    throw new Error(`invalid pid file: ${PID_FILE}`);
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+    console.log(`stopped server pid=${pid}`);
+  } catch (err) {
+    console.log(`failed to stop pid=${pid}: ${err.message}`);
+  }
+
+  fs.rmSync(PID_FILE, { force: true });
+}
+
+async function commandRestart() {
+  commandDown();
+  await commandUp();
 }
 
 async function commandAdd(argv) {
@@ -168,6 +198,8 @@ async function main() {
 
   const commands = {
     up: () => commandUp(),
+    down: () => commandDown(),
+    restart: () => commandRestart(),
     init: () => commandInit(argv),
     board: () => commandBoard(),
     add: () => commandAdd(argv),

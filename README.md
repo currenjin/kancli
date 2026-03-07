@@ -15,6 +15,9 @@ cd <your-project>
 kancli up   # 서버 없으면 자동 기동
 kancli init .
 kancli board
+# 서버 제어
+kancli down
+kancli restart
 # 필요 시 티켓 삭제
 kancli delete <ticketId>
 ```
