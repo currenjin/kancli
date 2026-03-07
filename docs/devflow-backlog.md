@@ -343,3 +343,28 @@
 - 결과:
   - `README.md`를 kancli quick start 우선으로 개편
   - 웹 UI 서버/엔드포인트 변경 없이 유지
+
+## K006 (P0) Live board interactive UX (실시간 + 인라인 응답)
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `kancli board`를 상시 실행형 live board로 전환
+  - `/api/events` SSE 구독 + 5초 주기 refresh fallback 적용
+  - pending action을 보드 내부에서 직접 응답 가능(선택형/텍스트형)
+  - 종료 키(`q`/`Ctrl+C`) 시 raw mode/cursor 복구
+
+## K007 (P1) ActionId 은닉 + human-friendly 응답 UX
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - board/pending 출력에서 label 중심 옵션 노출
+  - 선택형 프롬프트 숫자/방향키 기반 제출 지원
+  - `kancli answer`, `kancli pending` fallback 흐름 유지
+
+## K008 (P1) kc alias shim 설치/제거 + 문서 반영
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - install/uninstall script에 `kc` shim 추가(kancli와 동일 실행)
+  - 기존 `kc` 충돌 시 덮어쓰기 방지 + conflict note 출력
+  - README(EN/KR), CLI help에 `kc` 사용법 반영
