@@ -3,6 +3,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const readline = require("readline");
 const { spawn } = require("child_process");
 const { KancliClient } = require("../lib/kancli-client");
 const { renderBoard } = require("../lib/kancli-board");
@@ -12,7 +13,7 @@ const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli down\n  kancli restart\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli down\n  kancli restart\n  kancli init [projectPath] [--auto]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
 }
 
 function parseTicketId(value) {
@@ -92,13 +93,76 @@ async function commandBoard() {
   console.log(renderBoard(status));
 }
 
+function renderSkillPicker(list, cursor) {
+  process.stdout.write("\x1Bc");
+  console.log("kancli init - skill pipeline picker");
+  console.log("↑/↓: 이동  ←/→: 순서 변경  Space: 선택  Enter: 저장  q: 취소\n");
+  list.forEach((item, idx) => {
+    const cur = idx === cursor ? ">" : " ";
+    const sel = item.selected ? "[x]" : "[ ]";
+    console.log(`${cur} ${sel} ${item.name}`);
+  });
+}
+
+async function pickSkillsInteractive(skills) {
+  if (!skills.length) return [];
+  if (!process.stdin.isTTY) return skills;
+
+  const list = skills.map((name) => ({ name, selected: true }));
+  let cursor = 0;
+
+  return new Promise((resolve, reject) => {
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const cleanup = () => {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.removeListener("keypress", onKeypress);
+      process.stdout.write("\n");
+    };
+
+    const finish = (ok) => {
+      const selected = list.filter((x) => x.selected).map((x) => x.name);
+      cleanup();
+      if (!ok) return reject(new Error("init cancelled"));
+      resolve(selected);
+    };
+
+    const onKeypress = (_str, key = {}) => {
+      if (key.name === "up") cursor = Math.max(0, cursor - 1);
+      else if (key.name === "down") cursor = Math.min(list.length - 1, cursor + 1);
+      else if (key.name === "left") {
+        if (cursor > 0) {
+          [list[cursor - 1], list[cursor]] = [list[cursor], list[cursor - 1]];
+          cursor -= 1;
+        }
+      } else if (key.name === "right") {
+        if (cursor < list.length - 1) {
+          [list[cursor + 1], list[cursor]] = [list[cursor], list[cursor + 1]];
+          cursor += 1;
+        }
+      } else if (key.name === "space") list[cursor].selected = !list[cursor].selected;
+      else if (key.name === "return") return finish(true);
+      else if (key.name === "q" || (key.ctrl && key.name === "c")) return finish(false);
+      renderSkillPicker(list, cursor);
+    };
+
+    process.stdin.on("keypress", onKeypress);
+    renderSkillPicker(list, cursor);
+  });
+}
+
 async function commandInit(argv) {
   const projectPath = resolveProjectPath(argv[0] || ".");
   const skillResp = await client.scanSkills(projectPath);
   const skills = skillResp.skills || [];
-  await client.configSet({ projectPath, pipeline: skills });
+  const nonInteractive = argv.includes("--auto");
+  const pipeline = nonInteractive ? skills : await pickSkillsInteractive(skills);
+  await client.configSet({ projectPath, pipeline });
   console.log(`initialized project: ${projectPath}`);
-  console.log(`detected skills: ${skills.length ? skills.join(' -> ') : '(none)'}`);
+  console.log(`pipeline: ${pipeline.length ? pipeline.join(' -> ') : '(none selected)'}`);
 }
 
 function commandDown() {
