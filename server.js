@@ -241,6 +241,12 @@ function normalizePendingActionOption(option, index) {
 
 function normalizePendingAction(raw = {}) {
   if (!raw || typeof raw !== "object") return null;
+  // Reject objects that have no meaningful pending action fields
+  const hasPrompt = typeof raw.prompt === "string" && raw.prompt.trim();
+  const hasMessage = typeof raw.message === "string" && raw.message.trim();
+  const hasType = typeof raw.type === "string" && raw.type.trim();
+  const hasOptions = Array.isArray(raw.options) && raw.options.length > 0;
+  if (!hasPrompt && !hasMessage && !hasType && !hasOptions) return null;
   return createPendingAction(
     raw.type,
     raw.prompt || raw.message,
@@ -474,8 +480,10 @@ function emitTicket(ticket) {
 
 function resolveEventPendingAction(ev) {
   const src = ev?.event || ev?.data || ev;
-  const pending = src?.pendingAction || src?.pending_action || src?.action;
-  return normalizePendingAction(pending);
+  const pending = src?.pendingAction || src?.pending_action;
+  // Only use src.action if it looks like a pending action object (not a string or other type)
+  const actionCandidate = !pending && src?.action && typeof src.action === "object" && !Array.isArray(src.action) ? src.action : null;
+  return normalizePendingAction(pending || actionCandidate);
 }
 
 function resolveEventArtifact(ev) {
