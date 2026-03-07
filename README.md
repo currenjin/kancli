@@ -12,8 +12,8 @@ curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/insta
 
 ```bash
 cd <your-project>
-kancli init .
 kancli up
+kancli init .
 kancli board
 ```
 
