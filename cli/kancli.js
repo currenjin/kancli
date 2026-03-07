@@ -478,6 +478,17 @@ async function commandBoard() {
         else if (key.name === "down" && pending.length) pendingCursor = Math.min(pending.length - 1, pendingCursor + 1);
         else if (key.name === "return") await openPendingPanel();
         else if (key.name === "r") await refresh("manual refresh");
+        else if (str === "n" || str === "s" || str === "d") {
+          if (pending.length) {
+            const t = pending[Math.min(pendingCursor, pending.length - 1)];
+            const all = getAll();
+            const allIdx = all.findIndex((x) => String(x.id) === String(t.id));
+            if (allIdx >= 0) ticketCursor = allIdx;
+            const action = str === "n" ? "next" : str === "s" ? "stop" : "delete";
+            await ticketAction(action);
+            return;
+          }
+        }
         else if (/^[1-9]$/.test(str || "") && pending.length) {
           const idx = Number(str) - 1;
           if (idx >= 0 && idx < pending.length) {
