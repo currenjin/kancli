@@ -141,7 +141,10 @@ async function commandBoard() {
   let pendingCursor = 0;
   let ticketCursor = 0;
   let focus = "pending"; // "pending" | "tickets"
-  let mode = "board"; // board | selection | text | add
+  let mode = "board"; // board | selection | text | add | log
+  let logContent = "";
+  let logTicketId = null;
+  let logScroll = 0;
   let message = "";
   let selectedOption = 0;
   let inputBuffer = "";
@@ -175,6 +178,19 @@ async function commandBoard() {
     process.stdout.write(`${renderBoard(board, { pendingCursor, ticketCursor, focus, updatedAt: Date.now() })}\n`);
 
     const pending = getPending();
+    if (mode === "log") {
+      const rows = process.stdout.rows || 40;
+      const lines = logContent.split("\n");
+      const maxScroll = Math.max(0, lines.length - rows + 4);
+      logScroll = Math.min(logScroll, maxScroll);
+      const visible = lines.slice(logScroll, logScroll + rows - 4);
+      process.stdout.write(`\n  \x1b[1m--- log #${logTicketId} ---\x1b[0m  \x1b[2m(${logScroll + 1}-${logScroll + visible.length}/${lines.length} lines)\x1b[0m\n\n`);
+      for (const line of visible) {
+        process.stdout.write(`  ${line}\n`);
+      }
+      process.stdout.write(`\n\x1b[2m\u2191/\u2193 scroll  Esc back  r reload\x1b[0m\n`);
+      return;
+    }
     if (mode === "add") {
       process.stdout.write("\n--- add ticket ---\n");
       process.stdout.write("ticket id (Enter submit, Esc cancel):\n");
@@ -415,6 +431,29 @@ async function commandBoard() {
     }
   };
 
+  const openLog = async (ticketId) => {
+    try {
+      const detail = await client.ticketLog(ticketId);
+      logContent = detail.log || "(empty log)";
+      logTicketId = ticketId;
+      logScroll = Math.max(0, logContent.split("\n").length - (process.stdout.rows || 40) + 4);
+      mode = "log";
+      draw();
+    } catch (err) {
+      message = `log failed: ${err.message}`;
+      draw();
+    }
+  };
+
+  const getSelectedTicket = () => {
+    if (focus === "pending") {
+      const pending = getPending();
+      return pending.length ? pending[Math.min(pendingCursor, pending.length - 1)] : null;
+    }
+    const all = getAll();
+    return all.length ? all[Math.min(ticketCursor, all.length - 1)] : null;
+  };
+
   const submitAdd = async () => {
     const ticket = inputBuffer.trim();
     if (!ticket) {
@@ -473,6 +512,28 @@ async function commandBoard() {
       return;
     }
 
+    // log mode
+    if (mode === "log") {
+      if (key.name === "escape") {
+        resetPromptState();
+        message = "";
+        draw();
+        return;
+      }
+      const rows = process.stdout.rows || 40;
+      const lines = logContent.split("\n");
+      const maxScroll = Math.max(0, lines.length - rows + 4);
+      if (key.name === "up") logScroll = Math.max(0, logScroll - 1);
+      else if (key.name === "down") logScroll = Math.min(maxScroll, logScroll + 1);
+      else if (key.name === "pageup" || (key.name === "up" && key.shift)) logScroll = Math.max(0, logScroll - (rows - 6));
+      else if (key.name === "pagedown" || (key.name === "down" && key.shift)) logScroll = Math.min(maxScroll, logScroll + (rows - 6));
+      else if (str === "r") { await openLog(logTicketId); return; }
+      else if (str === "g") logScroll = 0;
+      else if (str === "G") logScroll = maxScroll;
+      draw();
+      return;
+    }
+
     if (mode === "board") {
       if (key.name === "q") {
         quit = true;
@@ -503,6 +564,11 @@ async function commandBoard() {
         else if (key.name === "down" && pending.length) pendingCursor = Math.min(pending.length - 1, pendingCursor + 1);
         else if (key.name === "return") await openPendingPanel();
         else if (key.name === "r") await refresh("manual refresh");
+        else if (str === "l") {
+          const t = getSelectedTicket();
+          if (t) await openLog(t.id);
+          return;
+        }
         else if (str === "n" || str === "s" || str === "d") {
           if (pending.length) {
             const t = pending[Math.min(pendingCursor, pending.length - 1)];
@@ -530,6 +596,11 @@ async function commandBoard() {
         else if (str === "n") { await ticketAction("next"); return; }
         else if (str === "s") { await ticketAction("stop"); return; }
         else if (str === "d") { await ticketAction("delete"); return; }
+        else if (str === "l") {
+          const t = getSelectedTicket();
+          if (t) await openLog(t.id);
+          return;
+        }
         else if (key.name === "return") {
           const t = all[Math.min(ticketCursor, all.length - 1)];
           if (t) await openPendingPanelForTicket(t);
