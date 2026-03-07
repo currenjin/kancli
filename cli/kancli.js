@@ -214,8 +214,18 @@ async function commandBoard() {
         pendingCursor = Math.min(pendingCursor, pending.length - 1);
         if (mode !== "board" && mode !== "add" && activeTicket) {
           const matched = pending.find((p) => String(p.id) === String(activeTicket.id));
-          if (matched) activeTicket = matched;
-          else {
+          if (matched) {
+            const prevPa = activeTicket.pendingAction || {};
+            const serverPa = matched.pendingAction || {};
+            const mergedPa = { ...serverPa };
+            if (!(serverPa.options || []).length && (prevPa.options || []).length) {
+              mergedPa.options = prevPa.options;
+            }
+            if ((!serverPa.prompt || /^(입력이 필요합니다|응답이 필요합니다)\.?$/.test(serverPa.prompt)) && prevPa.prompt && !/^(입력이 필요합니다|응답이 필요합니다)\.?$/.test(prevPa.prompt)) {
+              mergedPa.prompt = prevPa.prompt;
+            }
+            activeTicket = { ...matched, pendingAction: mergedPa };
+          } else {
             message = "selected pending action disappeared.";
             resetPromptState();
           }
