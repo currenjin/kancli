@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/insta
 ```bash
 cd <your-project>
 kancli up   # 서버 없으면 자동 기동
-kancli init .
+kancli init .   # 상대경로 가능, 하위 디렉토리에서 실행해도 git 루트 자동 탐색
 kancli board
 # 서버 제어
 kancli down

@@ -21,6 +21,22 @@ function parseTicketId(value) {
   return ticketId;
 }
 
+function resolveProjectPath(inputPath) {
+  const raw = String(inputPath || ".").trim() || ".";
+  const absolute = path.resolve(process.cwd(), raw);
+
+  // If user points to a subdirectory, automatically lift to git root when possible.
+  let current = absolute;
+  while (true) {
+    if (fs.existsSync(path.join(current, ".git"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return absolute;
+}
+
 function summarizeTicket(t) {
   const skill = t.currentSkill || "-";
   const pending = t.pendingAction ? `pending=${t.pendingAction.type}` : "pending=-";
@@ -77,7 +93,7 @@ async function commandBoard() {
 }
 
 async function commandInit(argv) {
-  const projectPath = argv[0] || process.cwd();
+  const projectPath = resolveProjectPath(argv[0] || ".");
   const skillResp = await client.scanSkills(projectPath);
   const skills = skillResp.skills || [];
   await client.configSet({ projectPath, pipeline: skills });
