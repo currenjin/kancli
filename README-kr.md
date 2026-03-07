@@ -89,6 +89,7 @@ kancli delete <ticketId>
 
 ```bash
 kancli status
+kancli pending   # 어떤 입력(actionId)이 필요한지 표시
 ```
 
 ### 9) 서버 종료/재시작

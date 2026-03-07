@@ -13,7 +13,7 @@ const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli down\n  kancli restart\n  kancli init [projectPath] [--auto]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli down\n  kancli restart\n  kancli init [projectPath] [--auto]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli pending\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
 }
 
 function parseTicketId(value) {
@@ -249,6 +249,25 @@ async function commandStatus() {
   for (const t of status.tickets || []) console.log(`- ${summarizeTicket(t)}`);
 }
 
+async function commandPending() {
+  const status = await client.status();
+  const pending = (status.tickets || []).filter((t) => t.pendingAction);
+  if (!pending.length) {
+    console.log("no pending questions/actions");
+    return;
+  }
+
+  for (const t of pending) {
+    const pa = t.pendingAction || {};
+    const opts = (pa.options || []).map((o) => o.id).filter(Boolean);
+    console.log(`#${t.id} ${t.jiraTicket}`);
+    console.log(`  skill: ${t.currentSkill || '-'} | status: ${t.status}`);
+    console.log(`  prompt: ${pa.prompt || '-'}`);
+    console.log(`  actionId: ${opts.length ? opts.join(' | ') : '(text input expected)'}`);
+    console.log(`  example: ${opts.length ? `kancli answer ${t.id} ${opts[0]}` : `kancli answer ${t.id} "your answer"`}`);
+  }
+}
+
 function commandUninstall(argv) {
   const yes = argv.includes("--yes");
   if (!yes) {
@@ -288,6 +307,7 @@ async function main() {
     stop: () => commandStop(argv),
     delete: () => commandDelete(argv),
     status: () => commandStatus(),
+    pending: () => commandPending(),
     uninstall: () => commandUninstall(argv),
   };
 
