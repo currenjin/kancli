@@ -44,6 +44,25 @@ function summarizeTicket(t) {
   return `#${t.id} ${t.jiraTicket} | ${t.status} | skill=${skill} | step=${t.currentStep ?? "-"} | ${pending}`;
 }
 
+function extractQuestionFromLog(log) {
+  const text = String(log || "");
+  if (!text.trim()) return "";
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  // Prefer explicit AskUserQuestion related lines
+  const askIdx = lines.findLastIndex((l) => /AskUserQuestion|명령을 입력해 주세요|다음 명령을 선택하세요|Answer questions\?/i.test(l));
+  if (askIdx >= 0) {
+    const slice = lines.slice(askIdx, Math.min(lines.length, askIdx + 6));
+    return slice.join(" ");
+  }
+
+  // Fallback: last line with command candidates
+  const cmdIdx = lines.findLastIndex((l) => /\bgo\b|\bcommit\b|\brefactor\b/i.test(l));
+  if (cmdIdx >= 0) return lines[cmdIdx];
+
+  return lines.slice(-3).join(" ");
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -260,9 +279,19 @@ async function commandPending() {
   for (const t of pending) {
     const pa = t.pendingAction || {};
     const opts = (pa.options || []).map((o) => o.id).filter(Boolean);
+
+    let prompt = pa.prompt || "";
+    if (!prompt || prompt === "입력이 필요합니다." || prompt === "응답이 필요합니다.") {
+      try {
+        const detail = await client.ticketLog(t.id);
+        const inferred = extractQuestionFromLog(detail.log || "");
+        if (inferred) prompt = inferred;
+      } catch {}
+    }
+
     console.log(`#${t.id} ${t.jiraTicket}`);
     console.log(`  skill: ${t.currentSkill || '-'} | status: ${t.status}`);
-    console.log(`  prompt: ${pa.prompt || '-'}`);
+    console.log(`  prompt: ${prompt || pa.prompt || '-'}`);
     console.log(`  actionId: ${opts.length ? opts.join(' | ') : '(text input expected)'}`);
     console.log(`  example: ${opts.length ? `kancli answer ${t.id} ${opts[0]}` : `kancli answer ${t.id} "your answer"`}`);
   }
