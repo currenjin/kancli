@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { KancliClient } = require("../lib/kancli-client");
 const { renderBoard } = require("../lib/kancli-board");
 
@@ -7,7 +10,7 @@ const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n\nQuick start:\n  kancli up\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
 }
 
 function parseTicketId(value) {
@@ -100,6 +103,26 @@ async function commandStatus() {
   for (const t of status.tickets || []) console.log(`- ${summarizeTicket(t)}`);
 }
 
+function commandUninstall(argv) {
+  const yes = argv.includes("--yes");
+  if (!yes) {
+    console.log("This will remove ~/.kancli and ~/.local/bin/kancli by default.");
+    console.log("Run: kancli uninstall --yes");
+    return;
+  }
+
+  const installDir = process.env.KANCLI_INSTALL_DIR || path.join(os.homedir(), ".kancli");
+  const binDir = process.env.KANCLI_BIN_DIR || path.join(os.homedir(), ".local", "bin");
+  const binPath = path.join(binDir, "kancli");
+
+  if (fs.existsSync(binPath)) fs.rmSync(binPath, { force: true });
+  if (fs.existsSync(installDir)) fs.rmSync(installDir, { recursive: true, force: true });
+
+  console.log(`uninstalled kancli`);
+  console.log(`removed: ${installDir}`);
+  console.log(`removed: ${binPath}`);
+}
+
 async function main() {
   const [cmd, ...argv] = process.argv.slice(2);
   if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") {
@@ -117,6 +140,7 @@ async function main() {
     stop: () => commandStop(argv),
     delete: () => commandDelete(argv),
     status: () => commandStatus(),
+    uninstall: () => commandUninstall(argv),
   };
 
   if (!commands[cmd]) {

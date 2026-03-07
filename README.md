@@ -19,6 +19,14 @@ kancli board
 kancli delete <ticketId>
 ```
 
+## Uninstall
+
+```bash
+kancli uninstall --yes
+# 또는
+curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/uninstall.sh | bash
+```
+
 ## Local Dev (repo에서 직접)
 
 ```bash
