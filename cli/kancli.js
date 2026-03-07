@@ -201,7 +201,9 @@ async function commandBoard() {
     activeTicket = pending[Math.min(pendingCursor, pending.length - 1)];
     selectedOption = 0;
     inputBuffer = "";
-    mode = (activeTicket.pendingAction?.options || []).length ? "selection" : "text";
+    const pa = activeTicket.pendingAction || {};
+    const textTypes = ["text", "input", "free_text"];
+    mode = ((pa.options || []).length && !textTypes.includes(pa.type)) ? "selection" : "text";
     message = "";
     draw();
   };
@@ -225,6 +227,10 @@ async function commandBoard() {
         return;
       }
       payload.input = inputBuffer;
+      if (action.type === "selection") {
+        // fallback for selection prompts where runtime did not provide explicit option list
+        payload.actionId = inputBuffer.trim();
+      }
     }
 
     isSubmitting = true;
@@ -459,9 +465,15 @@ async function commandAnswer(argv) {
     return answerText.toLowerCase() === id || answerText.toLowerCase() === label;
   });
 
-  const payload = option
-    ? { actionId: option.id, metadata: { source: "kancli" } }
-    : { input: answerText, metadata: { source: "kancli" } };
+  let payload;
+  if (option) {
+    payload = { actionId: option.id, metadata: { source: "kancli" } };
+  } else if (action.type === "selection") {
+    // selection type but options may be missing from runtime; treat user text as direct actionId fallback
+    payload = { actionId: answerText.trim(), input: answerText, metadata: { source: "kancli" } };
+  } else {
+    payload = { input: answerText, metadata: { source: "kancli" } };
+  }
 
   const updated = await client.answer(ticketId, payload);
   console.log(`answered ${summarizeTicket(updated.ticket || updated)}`);
@@ -515,9 +527,11 @@ async function commandPending() {
 
     console.log(`#${t.id} ${t.jiraTicket}`);
     console.log(`  skill: ${t.currentSkill || '-'} | status: ${t.status}`);
+    const paType = pa.type || 'selection';
+    const noOptionsSelection = paType === 'selection' && !opts.length;
     console.log(`  prompt: ${prompt || pa.prompt || '-'}`);
-    console.log(`  options: ${opts.length ? opts.map((o) => `${o.label}(${o.id})`).join(' | ') : '(text input expected)'}`);
-    console.log(`  example: ${opts.length ? `kancli answer ${t.id} "${opts[0].label}"` : `kancli answer ${t.id} "your answer"`}`);
+    console.log(`  options: ${opts.length ? opts.map((o) => `${o.label}(${o.id})`).join(' | ') : (noOptionsSelection ? '(no options provided; type command directly, e.g. go)' : '(text input expected)')}`);
+    console.log(`  example: ${opts.length ? `kancli answer ${t.id} "${opts[0].label}"` : (noOptionsSelection ? `kancli answer ${t.id} go` : `kancli answer ${t.id} "your answer"`)}`);
   }
 }
 
