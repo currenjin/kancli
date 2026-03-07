@@ -1,12 +1,18 @@
 # kancli
 
-터미널 중심 스킬 파이프라인 러너.
+터미널 중심 스킬 파이프라인 러너 (`kancli`, 별칭 `kc`).
 
 ## 설치 (curl only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/install.sh | bash
 ```
+
+설치 시 두 명령이 생성됩니다:
+- `kancli` (기본)
+- `kc` (짧은 별칭, 동작 동일)
+
+`kc`가 이미 존재하고 kancli가 관리하는 파일이 아니면, 덮어쓰지 않고 충돌 안내만 출력합니다.
 
 설치 후 `~/.local/bin` 이 PATH에 없다면:
 
@@ -27,7 +33,8 @@ cd <your-project>
 ### 2) 서버 시작
 
 ```bash
-kancli up
+kc up
+# 또는: kancli up
 ```
 
 - 서버가 이미 실행 중이면 상태만 출력
@@ -36,7 +43,8 @@ kancli up
 ### 3) 스킬 스캔 + 파이프라인 설정
 
 ```bash
-kancli init .
+kc init .
+# 또는: kancli init .
 ```
 
 `init` 인터랙션 키:
@@ -52,11 +60,24 @@ kancli init .
 kancli init . --auto
 ```
 
-### 4) 보드 보기
+### 4) 라이브 보드 보기
 
 ```bash
-kancli board
+kc board
+# 또는: kancli board
 ```
+
+`board`는 종료할 때까지 열린 상태로 유지되며 실시간 업데이트됩니다(SSE + 주기적 새로고침 fallback).
+
+라이브 보드 키:
+- `↑/↓`: pending 질문 커서 이동
+- `1..9`: pending 질문 바로 선택
+- `Enter`: 응답 패널 열기/제출
+- 선택형 프롬프트: `↑/↓` 또는 숫자 + `Enter`
+- 텍스트형 프롬프트: 입력 + `Enter`
+- `Esc`: 현재 응답 패널 취소
+- `r`: 수동 새로고침
+- `q` / `Ctrl+C`: 터미널 상태 복구 후 종료
 
 ### 5) 티켓 추가
 
@@ -89,7 +110,7 @@ kancli delete <ticketId>
 
 ```bash
 kancli status
-kancli pending   # 어떤 입력(actionId)이 필요한지 표시
+kancli pending   # fallback 응답용 질문/옵션 표시
 ```
 
 ### 9) 서버 종료/재시작

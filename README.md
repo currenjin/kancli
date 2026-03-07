@@ -1,12 +1,18 @@
 # kancli
 
-Terminal-first skill pipeline runner.
+Terminal-first skill pipeline runner (`kancli`, alias `kc`).
 
 ## Install (curl only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/install.sh | bash
 ```
+
+Installer creates two commands:
+- `kancli` (primary)
+- `kc` (short alias, same behavior)
+
+If `kc` already exists and is not kancli-managed, installer keeps it untouched and prints a conflict note.
 
 If `~/.local/bin` is not in your PATH:
 
@@ -27,7 +33,8 @@ cd <your-project>
 ### 2) Start the server
 
 ```bash
-kancli up
+kc up
+# or: kancli up
 ```
 
 - If a server is already running, it prints status.
@@ -36,7 +43,8 @@ kancli up
 ### 3) Scan skills + configure pipeline
 
 ```bash
-kancli init .
+kc init .
+# or: kancli init .
 ```
 
 `init` interactive keys:
@@ -52,11 +60,24 @@ To auto-select all detected skills:
 kancli init . --auto
 ```
 
-### 4) Open board view
+### 4) Open live board view
 
 ```bash
-kancli board
+kc board
+# or: kancli board
 ```
+
+`board` stays open and updates in real-time (SSE + periodic refresh fallback).
+
+Live board keys:
+- `↑/↓`: move pending question cursor
+- `1..9`: jump to pending question
+- `Enter`: open/submit answer panel
+- Selection prompt: `↑/↓` or number + `Enter`
+- Text prompt: type + `Enter`
+- `Esc`: cancel current answer panel
+- `r`: manual refresh
+- `q` / `Ctrl+C`: clean exit
 
 ### 5) Add a ticket
 
@@ -89,7 +110,7 @@ kancli delete <ticketId>
 
 ```bash
 kancli status
-kancli pending   # show exactly what input/actionId is required
+kancli pending   # show pending prompts/options for fallback answering
 ```
 
 ### 9) Stop/restart server

@@ -6,14 +6,14 @@ const path = require("path");
 const readline = require("readline");
 const { spawn } = require("child_process");
 const { KancliClient } = require("../lib/kancli-client");
-const { renderBoard } = require("../lib/kancli-board");
+const { renderBoard, toHumanActionLabel } = require("../lib/kancli-board");
 
 const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL || "http://localhost:3000";
 const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli down\n  kancli restart\n  kancli init [projectPath] [--auto]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli pending\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up (or: kc up)\n  kancli down\n  kancli restart\n  kancli init [projectPath] [--auto]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli pending\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kc init .\n  kc board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
 }
 
 function parseTicketId(value) {
@@ -109,7 +109,231 @@ async function commandUp() {
 
 async function commandBoard() {
   const status = await client.status();
-  console.log(renderBoard(status));
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log(renderBoard(status, { updatedAt: Date.now() }));
+    return;
+  }
+
+  let board = status;
+  let pendingCursor = 0;
+  let mode = "board"; // board | selection | text
+  let message = "";
+  let selectedOption = 0;
+  let inputBuffer = "";
+  let activeTicket = null;
+  let quit = false;
+  let isSubmitting = false;
+  let refreshTimer = null;
+  let closeSse = null;
+
+  const getPending = () => (board.tickets || []).filter((t) => t.pendingAction);
+
+  const resetPromptState = () => {
+    mode = "board";
+    activeTicket = null;
+    selectedOption = 0;
+    inputBuffer = "";
+  };
+
+  const draw = () => {
+    process.stdout.write("\x1Bc");
+    process.stdout.write(`${renderBoard(board, { pendingCursor, updatedAt: Date.now() })}\n`);
+
+    const pending = getPending();
+    if (mode !== "board" && activeTicket) {
+      const action = activeTicket.pendingAction || {};
+      process.stdout.write("\n--- answer panel ---\n");
+      process.stdout.write(`#${activeTicket.id} ${activeTicket.jiraTicket}\n`);
+      process.stdout.write(`${action.prompt || action.type || "pending action"}\n`);
+      if ((action.options || []).length) {
+        process.stdout.write("\nselect option (↑/↓ or number, Enter submit, Esc cancel):\n");
+        (action.options || []).forEach((opt, idx) => {
+          const mark = idx === selectedOption ? ">" : " ";
+          process.stdout.write(` ${mark} ${idx + 1}. ${toHumanActionLabel(opt, idx)}\n`);
+        });
+      } else {
+        process.stdout.write("\ntext input (Enter submit, Esc cancel):\n");
+        process.stdout.write(`> ${inputBuffer}\n`);
+      }
+    } else if (pending.length) {
+      process.stdout.write(`\nEnter로 #${pending[Math.min(pendingCursor, pending.length - 1)]?.id} 응답 패널 열기\n`);
+    }
+
+    if (message) process.stdout.write(`\n${message}\n`);
+    if (isSubmitting) process.stdout.write("\nsubmitting...\n");
+  };
+
+  const refresh = async (hint = "") => {
+    try {
+      board = await client.status();
+      const pending = getPending();
+      if (!pending.length) {
+        pendingCursor = 0;
+        if (mode !== "board") {
+          message = "pending action resolved.";
+          resetPromptState();
+        }
+      } else {
+        pendingCursor = Math.min(pendingCursor, pending.length - 1);
+        if (mode !== "board" && activeTicket) {
+          const matched = pending.find((p) => String(p.id) === String(activeTicket.id));
+          if (matched) activeTicket = matched;
+          else {
+            message = "selected pending action disappeared.";
+            resetPromptState();
+          }
+        }
+      }
+      if (hint) message = hint;
+    } catch (err) {
+      message = `refresh failed: ${err.message}`;
+    }
+    draw();
+  };
+
+  const openPendingPanel = () => {
+    const pending = getPending();
+    if (!pending.length) {
+      message = "no pending actions.";
+      draw();
+      return;
+    }
+    activeTicket = pending[Math.min(pendingCursor, pending.length - 1)];
+    selectedOption = 0;
+    inputBuffer = "";
+    mode = (activeTicket.pendingAction?.options || []).length ? "selection" : "text";
+    message = "";
+    draw();
+  };
+
+  const submitCurrent = async () => {
+    if (!activeTicket || isSubmitting) return;
+    const action = activeTicket.pendingAction || {};
+    const payload = { metadata: { source: "kancli-board" } };
+    if ((action.options || []).length) {
+      const chosen = action.options[selectedOption];
+      if (!chosen?.id) {
+        message = "invalid selection.";
+        draw();
+        return;
+      }
+      payload.actionId = chosen.id;
+    } else {
+      if (!inputBuffer.trim()) {
+        message = "text input is required.";
+        draw();
+        return;
+      }
+      payload.input = inputBuffer;
+    }
+
+    isSubmitting = true;
+    draw();
+    try {
+      await client.answer(activeTicket.id, payload);
+      message = `submitted answer for #${activeTicket.id}`;
+      resetPromptState();
+      await refresh();
+    } catch (err) {
+      message = `submit failed: ${err.message}`;
+      draw();
+    } finally {
+      isSubmitting = false;
+      draw();
+    }
+  };
+
+  const cleanup = () => {
+    if (refreshTimer) clearInterval(refreshTimer);
+    if (closeSse) closeSse();
+    process.stdin.removeListener("keypress", onKeypress);
+    process.stdout.write("\x1B[?25h");
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    process.stdin.pause();
+    process.stdout.write("\n");
+  };
+
+  const onKeypress = async (str, key = {}) => {
+    if (key.ctrl && key.name === "c") {
+      quit = true;
+      cleanup();
+      return;
+    }
+    if (mode === "board") {
+      const pending = getPending();
+      if (key.name === "q") {
+        quit = true;
+        cleanup();
+        return;
+      }
+      if (key.name === "up" && pending.length) pendingCursor = Math.max(0, pendingCursor - 1);
+      else if (key.name === "down" && pending.length) pendingCursor = Math.min(pending.length - 1, pendingCursor + 1);
+      else if (key.name === "return") openPendingPanel();
+      else if (key.name === "r") await refresh("manual refresh");
+      else if (/^[1-9]$/.test(str || "") && pending.length) {
+        const idx = Number(str) - 1;
+        if (idx >= 0 && idx < pending.length) {
+          pendingCursor = idx;
+          openPendingPanel();
+          return;
+        }
+      }
+      draw();
+      return;
+    }
+
+    if (key.name === "escape") {
+      resetPromptState();
+      message = "answer cancelled.";
+      draw();
+      return;
+    }
+
+    if (mode === "selection") {
+      const options = activeTicket?.pendingAction?.options || [];
+      if (!options.length) {
+        mode = "text";
+        draw();
+        return;
+      }
+      if (key.name === "up") selectedOption = Math.max(0, selectedOption - 1);
+      else if (key.name === "down") selectedOption = Math.min(options.length - 1, selectedOption + 1);
+      else if (key.name === "return") await submitCurrent();
+      else if (/^[1-9]$/.test(str || "")) {
+        const idx = Number(str) - 1;
+        if (idx >= 0 && idx < options.length) selectedOption = idx;
+      }
+      draw();
+      return;
+    }
+
+    if (mode === "text") {
+      if (key.name === "return") await submitCurrent();
+      else if (key.name === "backspace") inputBuffer = inputBuffer.slice(0, -1);
+      else if (!key.ctrl && !key.meta && str) inputBuffer += str;
+      draw();
+    }
+  };
+
+  readline.emitKeypressEvents(process.stdin);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdout.write("\x1B[?25l");
+  process.stdin.on("keypress", onKeypress);
+
+  closeSse = client.subscribeEvents(async () => {
+    if (quit) return;
+    await refresh();
+  }, () => {});
+  refreshTimer = setInterval(() => {
+    if (!quit) refresh();
+  }, 5000);
+
+  await refresh();
+
+  while (!quit) {
+    await sleep(200);
+  }
 }
 
 function renderSkillPicker(list, cursor) {
@@ -278,7 +502,7 @@ async function commandPending() {
 
   for (const t of pending) {
     const pa = t.pendingAction || {};
-    const opts = (pa.options || []).map((o) => o.id).filter(Boolean);
+    const opts = (pa.options || []).map((o, idx) => ({ id: o?.id, label: toHumanActionLabel(o, idx) })).filter((o) => o.id);
 
     let prompt = pa.prompt || "";
     if (!prompt || prompt === "입력이 필요합니다." || prompt === "응답이 필요합니다.") {
@@ -292,8 +516,8 @@ async function commandPending() {
     console.log(`#${t.id} ${t.jiraTicket}`);
     console.log(`  skill: ${t.currentSkill || '-'} | status: ${t.status}`);
     console.log(`  prompt: ${prompt || pa.prompt || '-'}`);
-    console.log(`  actionId: ${opts.length ? opts.join(' | ') : '(text input expected)'}`);
-    console.log(`  example: ${opts.length ? `kancli answer ${t.id} ${opts[0]}` : `kancli answer ${t.id} "your answer"`}`);
+    console.log(`  options: ${opts.length ? opts.map((o) => `${o.label}(${o.id})`).join(' | ') : '(text input expected)'}`);
+    console.log(`  example: ${opts.length ? `kancli answer ${t.id} "${opts[0].label}"` : `kancli answer ${t.id} "your answer"`}`);
   }
 }
 
@@ -308,13 +532,22 @@ function commandUninstall(argv) {
   const installDir = process.env.KANCLI_INSTALL_DIR || path.join(os.homedir(), ".kancli");
   const binDir = process.env.KANCLI_BIN_DIR || path.join(os.homedir(), ".local", "bin");
   const binPath = path.join(binDir, "kancli");
+  const kcPath = path.join(binDir, "kc");
 
   if (fs.existsSync(binPath)) fs.rmSync(binPath, { force: true });
+
+  if (fs.existsSync(kcPath)) {
+    const kcText = fs.readFileSync(kcPath, "utf8");
+    if (kcText.includes("kancli-shim")) fs.rmSync(kcPath, { force: true });
+    else console.log(`skip removing kc (not managed by kancli): ${kcPath}`);
+  }
+
   if (fs.existsSync(installDir)) fs.rmSync(installDir, { recursive: true, force: true });
 
   console.log(`uninstalled kancli`);
   console.log(`removed: ${installDir}`);
   console.log(`removed: ${binPath}`);
+  console.log(`removed: ${kcPath} (if managed by kancli)`);
 }
 
 async function main() {
