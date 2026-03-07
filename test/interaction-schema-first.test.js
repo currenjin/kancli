@@ -43,7 +43,8 @@ test('unknown interaction fallback pending action is generic free-text schema', 
 test('runtimeIndicatesUserQuestion detects generic question signals without language-specific parser', () => {
   assert.equal(runtimeIndicatesUserQuestion({ needsResponse: true }), true);
   assert.equal(runtimeIndicatesUserQuestion({ stopReason: 'awaiting_user_input' }), true);
-  assert.equal(runtimeIndicatesUserQuestion({ message: 'Can you confirm this change?' }), true);
+  // Text ending with ? no longer triggers — only explicit flags do
+  assert.equal(runtimeIndicatesUserQuestion({ message: 'Can you confirm this change?' }), false);
   assert.equal(runtimeIndicatesUserQuestion({ message: 'processing logs only' }), false);
 });
 

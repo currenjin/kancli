@@ -151,7 +151,13 @@ async function commandBoard() {
   let refreshTimer = null;
   let closeSse = null;
 
-  const getPending = () => (board.tickets || []).filter((t) => t.pendingAction);
+  const QUESTION_SOURCES = new Set(["tool_use", "runtime_fallback"]);
+  const getPending = () => {
+    const all = (board.tickets || []).filter((t) => t.pendingAction);
+    const questions = all.filter((t) => QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
+    const actions = all.filter((t) => !QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
+    return [...questions, ...actions];
+  };
   const getAll = () => getAllTickets(board);
 
   const resetPromptState = () => {

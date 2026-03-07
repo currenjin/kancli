@@ -591,11 +591,7 @@ function runtimeIndicatesUserQuestion(ev) {
   const stopReason = typeof src.stopReason === "string" ? src.stopReason.toLowerCase() : "";
   if (["awaiting_user_input", "needs_user_input", "ask_user", "question"].includes(stopReason)) return true;
 
-  if (hasQuestionSignal(src.message) || hasQuestionSignal(src.result) || hasQuestionSignal(src.log)) return true;
-
-  const content = src.message?.content;
-  if (!Array.isArray(content)) return false;
-  return content.some((block) => hasQuestionSignal(block?.text));
+  return false;
 }
 
 function applyRedline(ticket, input = {}) {
@@ -629,11 +625,6 @@ function processText(ticket, text) {
   if (!text) return;
   ticket.log += text;
   applyRedline(ticket, { text });
-
-  if (!ticket.pendingAction) {
-    const inferred = inferSelectionFromTextPrompt(text);
-    if (inferred) setPendingAction(ticket, inferred, "runtime_text_infer");
-  }
 }
 
 function extractOptionsFromPrompt(prompt) {
