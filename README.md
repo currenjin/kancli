@@ -2,82 +2,82 @@
 
 Terminal-first skill pipeline runner.
 
-## 설치 (curl only)
+## Install (curl only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/install.sh | bash
 ```
 
-> 설치 후 `~/.local/bin` 이 PATH에 없으면 추가 필요
->
-> ```bash
-> export PATH="$HOME/.local/bin:$PATH"
-> ```
+If `~/.local/bin` is not in your PATH:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
 
 ---
 
-## 실제 사용법
+## Practical Usage
 
-### 1) 프로젝트로 이동
+### 1) Move into your project
 
 ```bash
 cd <your-project>
 ```
 
-### 2) 서버 시작
+### 2) Start the server
 
 ```bash
 kancli up
 ```
 
-- 서버가 이미 떠 있으면 상태만 출력
-- 서버가 없으면 자동 기동
+- If a server is already running, it prints status.
+- If no server is running, it starts one automatically.
 
-### 3) 스킬 스캔 + 파이프라인 설정
+### 3) Scan skills + configure pipeline
 
 ```bash
 kancli init .
 ```
 
-`init` 인터랙션 키:
-- `↑/↓` : 스킬 이동
-- `←/→` : 순서 변경
-- `Space` : 선택/해제
-- `Enter` : 저장
-- `q` : 취소
+`init` interactive keys:
+- `↑/↓`: move cursor
+- `←/→`: reorder
+- `Space`: select/unselect
+- `Enter`: save
+- `q`: cancel
 
-> 자동 전체 선택 저장이 필요하면:
->
-> ```bash
-> kancli init . --auto
-> ```
+To auto-select all detected skills:
 
-### 4) 보드 보기
+```bash
+kancli init . --auto
+```
+
+### 4) Open board view
 
 ```bash
 kancli board
 ```
 
-### 5) 티켓 투입
+### 5) Add a ticket
 
 ```bash
 kancli add RP-5336
 ```
 
-### 6) 질문(대기 액션) 응답
+### 6) Answer pending questions/actions
 
 ```bash
 kancli answer <ticketId> go
-# 예: kancli answer 12 go
+# example: kancli answer 12 go
 ```
 
-텍스트 응답도 가능:
+You can also send text input:
 
 ```bash
-kancli answer <ticketId> "계속 진행해"
+kancli answer <ticketId> "continue with this approach"
 ```
 
-### 7) 단계 진행 / 중지 / 삭제
+### 7) Move/stop/delete a ticket
 
 ```bash
 kancli next <ticketId>
@@ -85,13 +85,13 @@ kancli stop <ticketId>
 kancli delete <ticketId>
 ```
 
-### 8) 상태 확인
+### 8) Check runtime status
 
 ```bash
 kancli status
 ```
 
-### 9) 서버 종료/재시작
+### 9) Stop/restart server
 
 ```bash
 kancli down
@@ -100,7 +100,7 @@ kancli restart
 
 ---
 
-## 삭제 (curl only)
+## Uninstall (curl only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/uninstall.sh | bash
@@ -108,7 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/unins
 
 ---
 
-## 문제 해결
+## Troubleshooting
 
 ### `fetch failed (localhost:3000 unreachable)`
 
@@ -116,11 +116,11 @@ curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/unins
 kancli up
 ```
 
-### 스킬이 0개로 나올 때
+### No skills detected
 
 ```bash
 kancli init .
 ```
 
-- 현재 위치가 하위 디렉토리여도 git 루트 자동 탐색
-- 그래도 안 되면 프로젝트 루트에서 다시 실행
+- `kancli init .` resolves to your git root automatically.
+- If still empty, run from your project root and try again.
