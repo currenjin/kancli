@@ -4,10 +4,14 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "kancli": "node cli/kancli.js"
+  },
+  "bin": {
+    "kancli": "./cli/kancli.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "DevFlow - Claude Code skill pipeline runner"
+  "description": "DevFlow / kancli terminal-first skill pipeline runner"
 }
