@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/insta
 
 ```bash
 cd <your-project>
-kancli up
+kancli up   # 서버 없으면 자동 기동
 kancli init .
 kancli board
 # 필요 시 티켓 삭제

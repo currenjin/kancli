@@ -3,6 +3,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawn } = require("child_process");
 const { KancliClient } = require("../lib/kancli-client");
 const { renderBoard } = require("../lib/kancli-board");
 
@@ -10,7 +11,7 @@ const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n  kancli uninstall [--yes]\n\nQuick start:\n  kancli up   # 서버 없으면 자동 기동\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)\n  KANCLI_INSTALL_DIR (default: ~/.kancli)\n  KANCLI_BIN_DIR (default: ~/.local/bin)`);
 }
 
 function parseTicketId(value) {
@@ -25,8 +26,43 @@ function summarizeTicket(t) {
   return `#${t.id} ${t.jiraTicket} | ${t.status} | skill=${skill} | step=${t.currentStep ?? "-"} | ${pending}`;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ensureServerUp() {
+  try {
+    return await client.health();
+  } catch {
+    const serverPath = path.join(__dirname, "..", "server.js");
+    const logPath = path.join(os.homedir(), ".kancli", "kancli-up.log");
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    const out = fs.openSync(logPath, "a");
+
+    const child = spawn(process.execPath, [serverPath], {
+      detached: true,
+      stdio: ["ignore", out, out],
+      cwd: path.join(__dirname, ".."),
+      env: {
+        ...process.env,
+        PORT: process.env.PORT || "3000",
+      },
+    });
+    child.unref();
+
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(250);
+      try {
+        return await client.health();
+      } catch {}
+    }
+
+    throw new Error(`failed to start local server. check log: ${logPath}`);
+  }
+}
+
 async function commandUp() {
-  const health = await client.health();
+  const health = await ensureServerUp();
   const status = await client.status();
   console.log(`kancli connected: ${BASE_URL}`);
   console.log(`server ok=${health.ok} uptime=${health.uptimeSec}s queue=${health.queueDepth} running=${health.running}`);
