@@ -178,11 +178,33 @@ function saveDb() {
 function scanSkills(projectPath) {
   const skillsDir = path.join(projectPath, ".claude", "skills");
   if (!fs.existsSync(skillsDir)) return [];
-  return fs.readdirSync(skillsDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .filter((d) => fs.existsSync(path.join(skillsDir, d.name, "SKILL.md")))
-    .map((d) => d.name)
-    .sort();
+
+  const found = [];
+
+  function walk(dir, rel = "") {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    const hasSkillFile = entries.some((e) => e.isFile() && /^skill\.md$/i.test(e.name));
+    if (hasSkillFile) {
+      const normalized = rel.replace(/^\/+/, "");
+      if (normalized) found.push(normalized);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!(entry.isDirectory() || entry.isSymbolicLink())) continue;
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      walk(path.join(dir, entry.name), childRel);
+    }
+  }
+
+  walk(skillsDir, "");
+  return [...new Set(found)].sort();
 }
 
 function createWorktree(jiraTicket) {
