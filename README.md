@@ -1,8 +1,23 @@
-# DevFlow (kancli-enabled)
+# kancli
 
-Claude Code skill pipeline runner. 이제 **kancli(terminal-first)** 를 기본 운영 경로로 제공합니다.
+Terminal-first skill pipeline runner.
 
-## Quick Start (kancli 우선)
+## Curl Install (npm 없이)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/install.sh | bash
+```
+
+설치 후(프로젝트 폴더에서):
+
+```bash
+cd <your-project>
+kancli init .
+kancli up
+kancli board
+```
+
+## Local Dev (repo에서 직접)
 
 ```bash
 npm install

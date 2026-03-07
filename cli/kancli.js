@@ -7,7 +7,7 @@ const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli status\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli status\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)`);
 }
 
 function parseTicketId(value) {
@@ -35,6 +35,15 @@ async function commandBoard() {
   console.log(renderBoard(status));
 }
 
+async function commandInit(argv) {
+  const projectPath = argv[0] || process.cwd();
+  const skillResp = await client.scanSkills(projectPath);
+  const skills = skillResp.skills || [];
+  await client.configSet({ projectPath, pipeline: skills });
+  console.log(`initialized project: ${projectPath}`);
+  console.log(`detected skills: ${skills.length ? skills.join(' -> ') : '(none)'}`);
+}
+
 async function commandAdd(argv) {
   const jiraTicket = argv[0];
   if (!jiraTicket) throw new Error("usage: kancli add <ticket>");
@@ -60,7 +69,7 @@ async function commandAnswer(argv) {
 
   const payload = option
     ? { actionId: option.id, metadata: { source: "kancli" } }
-    : { text: answerText, metadata: { source: "kancli" } };
+    : { input: answerText, metadata: { source: "kancli" } };
 
   const updated = await client.answer(ticketId, payload);
   console.log(`answered ${summarizeTicket(updated.ticket || updated)}`);
@@ -94,6 +103,7 @@ async function main() {
 
   const commands = {
     up: () => commandUp(),
+    init: () => commandInit(argv),
     board: () => commandBoard(),
     add: () => commandAdd(argv),
     answer: () => commandAnswer(argv),
