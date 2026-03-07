@@ -503,6 +503,31 @@ function createUnknownInteractionFallbackPendingAction() {
   );
 }
 
+function extractQuestionTextFromEvent(ev) {
+  const src = ev?.event || ev?.data || ev;
+  if (!src || typeof src !== "object") return "";
+
+  for (const field of ["message", "result", "log"]) {
+    if (typeof src[field] === "string" && src[field].trim()) {
+      const lines = src[field].trim().split(/\r?\n/).filter(Boolean);
+      const last = lines.slice(-5).join("\n");
+      if (last) return last;
+    }
+  }
+
+  const content = src.message?.content;
+  if (Array.isArray(content)) {
+    for (let i = content.length - 1; i >= 0; i--) {
+      if (typeof content[i]?.text === "string" && content[i].text.trim()) {
+        const lines = content[i].text.trim().split(/\r?\n/).filter(Boolean);
+        return lines.slice(-5).join("\n");
+      }
+    }
+  }
+
+  return "";
+}
+
 function hasQuestionSignal(value) {
   if (typeof value !== "string") return false;
   const text = value.trim();
@@ -717,7 +742,10 @@ function parseStreamEvent(ticket, ev) {
   if (typeof ev.log === "string") processText(ticket, `${ev.log}\n`);
 
   if (!ticket.pendingAction && runtimeIndicatesUserQuestion(ev)) {
-    setPendingAction(ticket, createUnknownInteractionFallbackPendingAction(), "runtime_fallback");
+    const questionText = extractQuestionTextFromEvent(ev);
+    const fallback = createUnknownInteractionFallbackPendingAction();
+    if (questionText) fallback.prompt = questionText;
+    setPendingAction(ticket, fallback, "runtime_fallback");
   }
 }
 
@@ -962,7 +990,8 @@ function validateActionResolutionPayload(payload, pending) {
   }
 
   const selected = pending.options?.find((o) => o.id === actionId) || null;
-  if (!selected && !builtin.includes(actionId) && pendingType === "selection") {
+  const hasServerOptions = Array.isArray(pending.options) && pending.options.length > 0;
+  if (!selected && !builtin.includes(actionId) && pendingType === "selection" && hasServerOptions) {
     return { error: `알 수 없는 actionId: ${actionId}` };
   }
 

@@ -226,7 +226,9 @@ async function commandBoard() {
     inputBuffer = "";
 
     const pa = activeTicket.pendingAction || {};
-    if (pa.type === "selection" && !(pa.options || []).length) {
+    const isGenericPrompt = !pa.prompt || /^(입력이 필요합니다|응답이 필요합니다)\.?$/.test(pa.prompt);
+    const needsInference = (pa.type === "selection" && !(pa.options || []).length) || isGenericPrompt;
+    if (needsInference) {
       try {
         const detail = await client.ticketLog(activeTicket.id);
         const inferredPrompt = extractQuestionFromLog(detail.log || "");
@@ -235,7 +237,7 @@ async function commandBoard() {
           ...activeTicket,
           pendingAction: {
             ...pa,
-            prompt: (pa.prompt && !/^입력이 필요합니다\.?$/.test(pa.prompt)) ? pa.prompt : (inferredPrompt || pa.prompt),
+            prompt: isGenericPrompt ? (inferredPrompt || pa.prompt) : pa.prompt,
             options: inferredOptions.length ? inferredOptions : (pa.options || []),
           },
         };
@@ -261,6 +263,7 @@ async function commandBoard() {
         return;
       }
       payload.actionId = chosen.id;
+      payload.input = chosen.id;
     } else {
       if (!inputBuffer.trim()) {
         message = "text input is required.";
