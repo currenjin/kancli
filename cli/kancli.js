@@ -152,12 +152,14 @@ async function commandBoard() {
   let closeSse = null;
 
   const QUESTION_SOURCES = new Set(["tool_use", "runtime_fallback"]);
+  const ACTIVE_STATUSES = new Set(["running", "queued"]);
   const getPending = () => {
     const all = (board.tickets || []).filter((t) => t.pendingAction);
     const questions = all.filter((t) => QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
     const actions = all.filter((t) => !QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
     const reviews = (board.tickets || []).filter((t) => !t.pendingAction && t.status === "review");
-    return [...questions, ...actions, ...reviews];
+    const active = (board.tickets || []).filter((t) => !t.pendingAction && ACTIVE_STATUSES.has(t.status));
+    return [...questions, ...actions, ...reviews, ...active];
   };
   const getAll = () => getAllTickets(board);
 
