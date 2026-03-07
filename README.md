@@ -2,76 +2,125 @@
 
 Terminal-first skill pipeline runner.
 
-## Curl Install (npm 없이)
+## 설치 (curl only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/install.sh | bash
 ```
 
-설치 후(프로젝트 폴더에서):
+> 설치 후 `~/.local/bin` 이 PATH에 없으면 추가 필요
+>
+> ```bash
+> export PATH="$HOME/.local/bin:$PATH"
+> ```
+
+---
+
+## 실제 사용법
+
+### 1) 프로젝트로 이동
 
 ```bash
 cd <your-project>
-kancli up   # 서버 없으면 자동 기동
-kancli init .   # 상대경로 가능, 하위 디렉토리에서도 git 루트 자동 탐색
-# init 화면에서 ↑/↓ 이동, ←/→ 순서변경, Space 선택, Enter 저장
+```
+
+### 2) 서버 시작
+
+```bash
+kancli up
+```
+
+- 서버가 이미 떠 있으면 상태만 출력
+- 서버가 없으면 자동 기동
+
+### 3) 스킬 스캔 + 파이프라인 설정
+
+```bash
+kancli init .
+```
+
+`init` 인터랙션 키:
+- `↑/↓` : 스킬 이동
+- `←/→` : 순서 변경
+- `Space` : 선택/해제
+- `Enter` : 저장
+- `q` : 취소
+
+> 자동 전체 선택 저장이 필요하면:
+>
+> ```bash
+> kancli init . --auto
+> ```
+
+### 4) 보드 보기
+
+```bash
 kancli board
-# 서버 제어
-kancli down
-kancli restart
-# 필요 시 티켓 삭제
+```
+
+### 5) 티켓 투입
+
+```bash
+kancli add RP-5336
+```
+
+### 6) 질문(대기 액션) 응답
+
+```bash
+kancli answer <ticketId> go
+# 예: kancli answer 12 go
+```
+
+텍스트 응답도 가능:
+
+```bash
+kancli answer <ticketId> "계속 진행해"
+```
+
+### 7) 단계 진행 / 중지 / 삭제
+
+```bash
+kancli next <ticketId>
+kancli stop <ticketId>
 kancli delete <ticketId>
 ```
 
-## Uninstall
+### 8) 상태 확인
 
 ```bash
-kancli uninstall --yes
-# 또는
+kancli status
+```
+
+### 9) 서버 종료/재시작
+
+```bash
+kancli down
+kancli restart
+```
+
+---
+
+## 삭제 (curl only)
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/uninstall.sh | bash
 ```
 
-## Local Dev (repo에서 직접)
+---
+
+## 문제 해결
+
+### `fetch failed (localhost:3000 unreachable)`
 
 ```bash
-npm install
-npm run dev
-npm run kancli -- up
-npm run kancli -- status
-npm run kancli -- board
+kancli up
 ```
 
-직접 실행:
+### 스킬이 0개로 나올 때
 
 ```bash
-node cli/kancli.js --help
+kancli init .
 ```
 
-## Docker Compose
-
-```bash
-docker compose up -d --build
-```
-
-접속: <http://localhost:3000>
-
-중지:
-
-```bash
-docker compose down
-```
-
-## 컨테이너 실행 시 참고
-
-- `./data`에 설정 파일이 저장됩니다 (`devflow-config.json`).
-- `../:/workspace`를 마운트해서 DevFlow가 실제 프로젝트를 접근할 수 있게 했습니다.
-  - 예: `/workspace/roouty-backend`
-- Claude 인증/설정을 사용하려면 `~/.claude:/root/.claude` 마운트를 유지하세요.
-- `CLAUDE_BIN` 기본값은 `claude`이며 필요시 compose 환경변수로 변경 가능합니다.
-
-## 수동 실행(로컬)
-
-```bash
-npm install
-npm run dev
-```
+- 현재 위치가 하위 디렉토리여도 git 루트 자동 탐색
+- 그래도 안 되면 프로젝트 루트에서 다시 실행
