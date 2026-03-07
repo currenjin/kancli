@@ -132,6 +132,14 @@ curl -fsSL https://raw.githubusercontent.com/currenjin/kancli/main/scripts/unins
 
 ## Troubleshooting
 
+### Command not found after curl install
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+hash -r
+~/.local/bin/kancli --help
+```
+
 ### `fetch failed (localhost:3000 unreachable)`
 
 ```bash

@@ -5,8 +5,14 @@ REPO_URL="https://github.com/currenjin/kancli"
 ARCHIVE_URL="https://codeload.github.com/currenjin/kancli/tar.gz/refs/heads/main"
 INSTALL_DIR="${KANCLI_INSTALL_DIR:-$HOME/.kancli}"
 BIN_DIR="${KANCLI_BIN_DIR:-$HOME/.local/bin}"
+LOCAL_BIN_DIR="$INSTALL_DIR/bin"
 
-mkdir -p "$INSTALL_DIR" "$BIN_DIR"
+if ! command -v node >/dev/null 2>&1; then
+  echo "[kancli] install failed: 'node' is required but not found in PATH" >&2
+  exit 1
+fi
+
+mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$LOCAL_BIN_DIR"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -21,15 +27,22 @@ fi
 
 rm -rf "$INSTALL_DIR"/*
 cp -R "$SRC_DIR"/* "$INSTALL_DIR"/
+mkdir -p "$LOCAL_BIN_DIR"
 
-cat > "$BIN_DIR/kancli" <<'EOF'
+write_shim() {
+  local target="$1"
+  cat > "$target" <<'EOF'
 #!/usr/bin/env bash
 # kancli-shim
 set -euo pipefail
 KANCLI_HOME="${KANCLI_INSTALL_DIR:-$HOME/.kancli}"
 exec node "$KANCLI_HOME/cli/kancli.js" "$@"
 EOF
-chmod +x "$BIN_DIR/kancli"
+  chmod +x "$target"
+}
+
+write_shim "$BIN_DIR/kancli"
+write_shim "$LOCAL_BIN_DIR/kancli"
 
 KC_CONFLICT=0
 if [[ -e "$BIN_DIR/kc" ]]; then
@@ -41,18 +54,13 @@ if [[ -e "$BIN_DIR/kc" ]]; then
 fi
 
 if [[ "$KC_CONFLICT" -eq 0 ]]; then
-  cat > "$BIN_DIR/kc" <<'EOF'
-#!/usr/bin/env bash
-# kancli-shim
-set -euo pipefail
-KANCLI_HOME="${KANCLI_INSTALL_DIR:-$HOME/.kancli}"
-exec node "$KANCLI_HOME/cli/kancli.js" "$@"
-EOF
-  chmod +x "$BIN_DIR/kc"
+  write_shim "$BIN_DIR/kc"
+  write_shim "$LOCAL_BIN_DIR/kc"
 fi
 
 echo "[kancli] installed from $REPO_URL"
 echo "[kancli] binary: $BIN_DIR/kancli"
+echo "[kancli] local fallback binary: $LOCAL_BIN_DIR/kancli"
 if [[ "$KC_CONFLICT" -eq 1 ]]; then
   echo "[kancli] note: '$BIN_DIR/kc' already exists and is not kancli-managed; skipped kc shim creation"
 else
@@ -61,6 +69,16 @@ fi
 echo "[kancli] make sure PATH includes: $BIN_DIR"
 echo "[kancli] quick start:"
 echo "  cd <your-project>"
-echo "  kc init .   # or kancli init ."
-echo "  kc up"
-echo "  kc board"
+if [[ "$KC_CONFLICT" -eq 0 ]]; then
+  echo "  kc init ."
+  echo "  kc up"
+  echo "  kc board"
+else
+  echo "  kancli init ."
+  echo "  kancli up"
+  echo "  kancli board"
+fi
+echo "[kancli] if command not found in current shell, run:"
+echo "  export PATH=\"$BIN_DIR:\$PATH\""
+echo "  hash -r"
+echo "  $BIN_DIR/kancli --help"
