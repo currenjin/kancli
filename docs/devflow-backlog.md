@@ -301,3 +301,45 @@
   - 구조화 이벤트 부재 + 사용자 입력 필요 신호 감지 시 generic fallback 생성
   - fallback 스키마: `type=text`, `prompt=응답이 필요합니다.`, `metadata.reason=unknown_interaction`, `inputMode=free_text`
   - 대시보드가 fallback/unknown interaction에 대해 텍스트 입력 제출 UI를 일관 제공
+
+---
+
+## Kancli 전환 백로그 (K001+)
+
+상태: TODO / DOING / DONE / BLOCKED
+
+## K001 (P0) kancli MVP spec + migration 문서 작성
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `docs/kancli-mvp.md` 작성
+  - `docs/kancli-migration.md` 작성
+
+## K002 (P0) kancli CLI 엔트리포인트 + 커맨드 스캐폴딩
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `cli/kancli.js` 추가
+  - 명령 구현: `up`, `board`, `add`, `answer`, `next`, `stop`, `status`
+  - `package.json`에 `bin.kancli`, `npm run kancli` 스크립트 추가
+
+## K003 (P0) CLI API wrapper(client) 구현
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `lib/kancli-client.js` 추가
+  - 기존 local server endpoint wrapper 구현(health/tickets/add/log/resolve/next/stop)
+
+## K004 (P1) terminal board(TUI-lite) 구현
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `lib/kancli-board.js` 추가
+  - skill columns + done + pending-question queue 렌더링
+
+## K005 (P1) CLI 우선 진입 문서화 + 웹 UI 호환 유지
+- 상태: DONE
+- 전이: TODO → DOING → DONE
+- 결과:
+  - `README.md`를 kancli quick start 우선으로 개편
+  - 웹 UI 서버/엔드포인트 변경 없이 유지

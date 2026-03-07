@@ -1,8 +1,24 @@
-# DevFlow
+# DevFlow (kancli-enabled)
 
-Claude Code skill pipeline runner.
+Claude Code skill pipeline runner. 이제 **kancli(terminal-first)** 를 기본 운영 경로로 제공합니다.
 
-## Docker Compose (권장)
+## Quick Start (kancli 우선)
+
+```bash
+npm install
+npm run dev
+npm run kancli -- up
+npm run kancli -- status
+npm run kancli -- board
+```
+
+직접 실행:
+
+```bash
+node cli/kancli.js --help
+```
+
+## Docker Compose
 
 ```bash
 docker compose up -d --build
