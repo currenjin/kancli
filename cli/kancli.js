@@ -7,7 +7,7 @@ const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL
 const client = new KancliClient(BASE_URL);
 
 function printHelp() {
-  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli status\n\nQuick start:\n  kancli up\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)`);
+  console.log(`kancli - terminal-first runtime control\n\nUsage:\n  kancli up\n  kancli init [projectPath]\n  kancli board\n  kancli add <ticket>\n  kancli answer <ticket> <option|text>\n  kancli next <ticket>\n  kancli stop <ticket>\n  kancli delete <ticket>\n  kancli status\n\nQuick start:\n  kancli up\n  kancli init .\n  kancli board\n\nEnvironment:\n  KANCLI_SERVER_URL (default: http://localhost:3000)`);
 }
 
 function parseTicketId(value) {
@@ -87,6 +87,12 @@ async function commandStop(argv) {
   console.log(`stopped ${summarizeTicket(updated.ticket || updated)}`);
 }
 
+async function commandDelete(argv) {
+  const ticketId = parseTicketId(argv[0]);
+  await client.remove(ticketId);
+  console.log(`deleted ticket #${ticketId}`);
+}
+
 async function commandStatus() {
   const status = await client.status();
   console.log(`pipeline: ${(status.pipeline || []).join(" -> ") || "(not set)"}`);
@@ -109,6 +115,7 @@ async function main() {
     answer: () => commandAnswer(argv),
     next: () => commandNext(argv),
     stop: () => commandStop(argv),
+    delete: () => commandDelete(argv),
     status: () => commandStatus(),
   };
 

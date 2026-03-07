@@ -15,6 +15,8 @@ cd <your-project>
 kancli up
 kancli init .
 kancli board
+# 필요 시 티켓 삭제
+kancli delete <ticketId>
 ```
 
 ## Local Dev (repo에서 직접)
