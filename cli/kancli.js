@@ -156,7 +156,8 @@ async function commandBoard() {
     const all = (board.tickets || []).filter((t) => t.pendingAction);
     const questions = all.filter((t) => QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
     const actions = all.filter((t) => !QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
-    return [...questions, ...actions];
+    const reviews = (board.tickets || []).filter((t) => !t.pendingAction && t.status === "review");
+    return [...questions, ...actions, ...reviews];
   };
   const getAll = () => getAllTickets(board);
 
@@ -253,7 +254,16 @@ async function commandBoard() {
       draw();
       return;
     }
-    activeTicket = pending[Math.min(pendingCursor, pending.length - 1)];
+    const target = pending[Math.min(pendingCursor, pending.length - 1)];
+    // Review tickets have no pending action — Enter triggers next directly
+    if (!target.pendingAction && target.status === "review") {
+      const all = getAll();
+      const idx = all.findIndex((x) => String(x.id) === String(target.id));
+      if (idx >= 0) ticketCursor = idx;
+      await ticketAction("next");
+      return;
+    }
+    activeTicket = target;
     selectedOption = 0;
     inputBuffer = "";
 
@@ -285,6 +295,13 @@ async function commandBoard() {
 
   const openPendingPanelForTicket = async (ticket) => {
     if (!ticket.pendingAction) {
+      if (ticket.status === "review") {
+        const all = getAll();
+        const idx = all.findIndex((x) => String(x.id) === String(ticket.id));
+        if (idx >= 0) ticketCursor = idx;
+        await ticketAction("next");
+        return;
+      }
       message = `#${ticket.id} has no pending action.`;
       draw();
       return;
