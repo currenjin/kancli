@@ -63,6 +63,29 @@ function extractQuestionFromLog(log) {
   return lines.slice(-3).join(" ");
 }
 
+function inferCommandOptionsFromText(text) {
+  const source = String(text || "");
+  if (!source.trim()) return [];
+  const out = [];
+  const add = (id) => {
+    const v = String(id || "").trim().toLowerCase();
+    if (!/^[a-z0-9_-]{2,40}$/.test(v)) return;
+    if (!out.find((o) => o.id === v)) out.push({ id: v, label: v });
+  };
+
+  for (const m of source.matchAll(/`([^`\n]{1,40})`/g)) add(m[1]);
+  for (const m of source.matchAll(/\*\*([^*\n]{1,40})\*\*/g)) add(m[1]);
+
+  if (!out.length) {
+    const lower = source.toLowerCase();
+    ["go", "commit", "refactor", "approve", "reject", "retry", "fallback", "advance", "halt"].forEach((cmd) => {
+      if (new RegExp(`\\b${cmd}\\b`).test(lower)) add(cmd);
+    });
+  }
+
+  return out;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -191,7 +214,7 @@ async function commandBoard() {
     draw();
   };
 
-  const openPendingPanel = () => {
+  const openPendingPanel = async () => {
     const pending = getPending();
     if (!pending.length) {
       message = "no pending actions.";
@@ -201,9 +224,27 @@ async function commandBoard() {
     activeTicket = pending[Math.min(pendingCursor, pending.length - 1)];
     selectedOption = 0;
     inputBuffer = "";
+
     const pa = activeTicket.pendingAction || {};
+    if (pa.type === "selection" && !(pa.options || []).length) {
+      try {
+        const detail = await client.ticketLog(activeTicket.id);
+        const inferredPrompt = extractQuestionFromLog(detail.log || "");
+        const inferredOptions = inferCommandOptionsFromText(inferredPrompt);
+        activeTicket = {
+          ...activeTicket,
+          pendingAction: {
+            ...pa,
+            prompt: (pa.prompt && !/^입력이 필요합니다\.?$/.test(pa.prompt)) ? pa.prompt : (inferredPrompt || pa.prompt),
+            options: inferredOptions.length ? inferredOptions : (pa.options || []),
+          },
+        };
+      } catch {}
+    }
+
     const textTypes = ["text", "input", "free_text"];
-    mode = ((pa.options || []).length && !textTypes.includes(pa.type)) ? "selection" : "text";
+    const effective = activeTicket.pendingAction || pa;
+    mode = ((effective.options || []).length && !textTypes.includes(effective.type)) ? "selection" : "text";
     message = "";
     draw();
   };
@@ -274,13 +315,13 @@ async function commandBoard() {
       }
       if (key.name === "up" && pending.length) pendingCursor = Math.max(0, pendingCursor - 1);
       else if (key.name === "down" && pending.length) pendingCursor = Math.min(pending.length - 1, pendingCursor + 1);
-      else if (key.name === "return") openPendingPanel();
+      else if (key.name === "return") await openPendingPanel();
       else if (key.name === "r") await refresh("manual refresh");
       else if (/^[1-9]$/.test(str || "") && pending.length) {
         const idx = Number(str) - 1;
         if (idx >= 0 && idx < pending.length) {
           pendingCursor = idx;
-          openPendingPanel();
+          await openPendingPanel();
           return;
         }
       }
@@ -458,12 +499,23 @@ async function commandAnswer(argv) {
   const action = detail.pendingAction;
   if (!action) throw new Error("no pending action for this ticket");
 
-  const option = (action.options || []).find((opt) => {
+  let options = (action.options || []).filter(Boolean);
+  if (!options.length && action.type === "selection") {
+    const inferred = inferCommandOptionsFromText(extractQuestionFromLog(detail.log || ""));
+    if (inferred.length) options = inferred;
+  }
+
+  let option = options.find((opt) => {
     if (!opt) return false;
     const id = String(opt.id || "").toLowerCase();
     const label = String(opt.label || "").toLowerCase();
     return answerText.toLowerCase() === id || answerText.toLowerCase() === label;
   });
+
+  if (!option && /^[1-9]$/.test(answerText)) {
+    const idx = Number(answerText) - 1;
+    if (idx >= 0 && idx < options.length) option = options[idx];
+  }
 
   let payload;
   if (option) {
