@@ -1,5 +1,5 @@
 {
-  "name": "devflow",
+  "name": "kancli",
   "version": "1.0.0",
   "scripts": {
     "dev": "node server.js",
@@ -13,5 +13,5 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "DevFlow / kancli terminal-first skill pipeline runner"
+  "description": "kancli - terminal-first skill pipeline runner"
 }

@@ -5,13 +5,13 @@ const path = require("node:path");
 const { createRedlineState, evaluateRedline } = require("./lib/redline");
 
 const PORT = Number(process.env.PORT || 3000);
-const CONFIG_FILE = process.env.DEVFLOW_CONFIG_FILE || path.join(__dirname, "devflow-config.json");
-const DB_FILE = process.env.DEVFLOW_DB_FILE || path.join(__dirname, "data", "devflow-db.json");
+const CONFIG_FILE = process.env.KANCLI_CONFIG_FILE || path.join(__dirname, "kancli-config.json");
+const DB_FILE = process.env.KANCLI_DB_FILE || path.join(__dirname, "data", "kancli-db.json");
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
-const WORKTREE_DIR = ".devflow-worktrees";
+const WORKTREE_DIR = ".kancli-worktrees";
 const DEFAULT_ALLOWED_TOOLS = "Read,Write,Edit,Glob,Grep,Bash,Agent";
 const MAX_WORKERS = 3;
-const PENDING_ACTION_TTL_MS = Number(process.env.DEVFLOW_PENDING_ACTION_TTL_MS || 15 * 60 * 1000);
+const PENDING_ACTION_TTL_MS = Number(process.env.KANCLI_PENDING_ACTION_TTL_MS || 15 * 60 * 1000);
 
 const TASK_STATUS = {
   QUEUED: "queued",
@@ -786,7 +786,7 @@ function startStep(id, options = {}) {
   const resolutionPrompt = resolutionToPrompt(options.resolution);
   const prompt = resolutionPrompt ? `/${skill} ${ticket.jiraTicket}\n${resolutionPrompt}` : `/${skill} ${ticket.jiraTicket}`;
 
-  const env = { ...process.env, DEVFLOW_ALLOWED_TOOLS: DEFAULT_ALLOWED_TOOLS };
+  const env = { ...process.env, KANCLI_ALLOWED_TOOLS: DEFAULT_ALLOWED_TOOLS };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
 
@@ -1370,7 +1370,7 @@ const server = http.createServer((req, res) => {
 
 if (require.main === module) {
   server.listen(PORT, () => {
-    console.log(`DevFlow running on http://localhost:${PORT}`);
+    console.log(`kancli running on http://localhost:${PORT}`);
     console.log(`Project: ${config.projectPath || "(not set)"}`);
     console.log(`Pipeline: ${config.pipeline.length ? config.pipeline.join(" → ") : "(not set)"}`);
   });

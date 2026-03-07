@@ -8,7 +8,7 @@ const { spawn } = require("child_process");
 const { KancliClient } = require("../lib/kancli-client");
 const { renderBoard, getAllTickets, toHumanActionLabel, resolvePrompt } = require("../lib/kancli-board");
 
-const BASE_URL = process.env.KANCLI_SERVER_URL || process.env.DEVFLOW_SERVER_URL || "http://localhost:3000";
+const BASE_URL = process.env.KANCLI_SERVER_URL || "http://localhost:3000";
 const PID_FILE = path.join(os.homedir(), ".kancli", "kancli-server.pid");
 const client = new KancliClient(BASE_URL);
 

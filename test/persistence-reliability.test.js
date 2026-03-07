@@ -11,7 +11,7 @@ const {
 } = require('../server');
 
 test('writeJsonAtomic persists data and creates backup on overwrite', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devflow-atomic-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kancli-atomic-'));
   const file = path.join(tempDir, 'db.json');
 
   writeJsonAtomic(file, { value: 1 });
@@ -23,7 +23,7 @@ test('writeJsonAtomic persists data and creates backup on overwrite', () => {
 });
 
 test('loadJsonWithRecovery restores from backup on corruption', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devflow-recover-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kancli-recover-'));
   const file = path.join(tempDir, 'db.json');
   fs.writeFileSync(file, '{bad json');
   fs.writeFileSync(`${file}.bak`, JSON.stringify({ ok: true }));

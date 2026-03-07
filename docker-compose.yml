@@ -1,16 +1,16 @@
 services:
-  devflow:
+  kancli:
     build: .
-    container_name: devflow
+    container_name: kancli
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
-      - DEVFLOW_CONFIG_FILE=/data/devflow-config.json
+      - KANCLI_CONFIG_FILE=/data/kancli-config.json
       - CLAUDE_BIN=claude
     volumes:
       - ./data:/data
-      # DevFlow가 제어할 프로젝트 루트(예: roouty-backend 포함 폴더)를 마운트
+      # kancli가 제어할 프로젝트 루트를 마운트
       - ../:/workspace
       # Claude 인증/설정 사용 시(선택)
       - ~/.claude:/root/.claude
