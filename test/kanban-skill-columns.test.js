@@ -12,7 +12,7 @@ test('pipeline columns preserve skill order', () => {
 test('sanitizeTicket exposes currentSkill and done flag', () => {
   const ticket = {
     id: '10',
-    jiraTicket: 'T-10',
+    title: 'T-10',
     currentStep: 1,
     status: 'review',
     proc: { pid: 1 },

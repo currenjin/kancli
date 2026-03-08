@@ -207,11 +207,11 @@ function scanSkills(projectPath) {
   return [...new Set(found)].sort();
 }
 
-function createWorktree(jiraTicket) {
+function createWorktree(title) {
   const worktreeBase = path.join(config.projectPath, WORKTREE_DIR);
   if (!fs.existsSync(worktreeBase)) fs.mkdirSync(worktreeBase, { recursive: true });
 
-  const safeName = jiraTicket.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase();
+  const safeName = title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase();
   const branchName = `feat/${safeName}`;
   const worktreePath = path.join(worktreeBase, safeName);
 
@@ -783,7 +783,7 @@ function startStep(id, options = {}) {
   emitTicket(ticket);
 
   const resolutionPrompt = resolutionToPrompt(options.resolution);
-  const prompt = resolutionPrompt ? `/${skill} ${ticket.jiraTicket}\n${resolutionPrompt}` : `/${skill} ${ticket.jiraTicket}`;
+  const prompt = resolutionPrompt ? `/${skill} ${ticket.title}\n${resolutionPrompt}` : `/${skill} ${ticket.title}`;
 
   const env = { ...process.env, KANCLI_ALLOWED_TOOLS: DEFAULT_ALLOWED_TOOLS };
   delete env.CLAUDECODE;
@@ -898,12 +898,12 @@ function schedule() {
   saveDb();
 }
 
-function addTicket(jiraTicket) {
+function addTicket(title) {
   const id = String(nextId++);
-  const { worktreePath, branchName } = createWorktree(jiraTicket);
+  const { worktreePath, branchName } = createWorktree(title);
   const t = {
     id,
-    jiraTicket,
+    title,
     branchName,
     worktreePath,
     currentStep: 0,
@@ -1221,7 +1221,7 @@ const server = http.createServer((req, res) => {
       return {
         slot: slot.slot,
         ticketId: slot.ticketId,
-        jiraTicket: ticket?.jiraTicket || null,
+        title: ticket?.title || null,
         currentStep: ticket?.currentStep ?? null,
         currentSkill: ticket?.currentStep != null ? config.pipeline[ticket.currentStep] || null : null,
       };
@@ -1235,8 +1235,8 @@ const server = http.createServer((req, res) => {
     req.on("end", () => {
       if (!config.projectPath || config.pipeline.length === 0) return json(res, { error: "프로젝트 경로와 파이프라인을 먼저 설정하세요." }, 400);
       try {
-        const { jiraTicket } = JSON.parse(body || "{}");
-        const ticket = addTicket(jiraTicket);
+        const { title } = JSON.parse(body || "{}");
+        const ticket = addTicket(title);
         json(res, sanitizeTicket(ticket), 201);
       } catch (err) {
         json(res, { error: err.message }, 500);

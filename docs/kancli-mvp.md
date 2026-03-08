@@ -46,7 +46,7 @@ kancli는 DevFlow 런타임의 **터미널 우선 인터페이스**다.
 
 - TUI-lite 텍스트 보드
 - 컬럼: pipeline skill 기준
-- 카드: `id, jiraTicket, status, currentStep, pendingAction 요약`
+- 카드: `id, title, status, currentStep, pendingAction 요약`
 - 추가 섹션:
   - `Done`
   - `Pending Questions`

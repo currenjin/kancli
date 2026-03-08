@@ -365,7 +365,7 @@ function ticketHtml(t) {
 
   return `<div class='ticket ${t.status === 'done' || t.isDone ? 'done' : ''} ${t.isStale ? 'stale' : ''} ${t.isPinnedBlocked ? 'pinned' : ''}'>
     <div class='ticket-top'>
-      <div class='ticket-id'>${esc(t.jiraTicket)}</div>
+      <div class='ticket-id'>${esc(t.title)}</div>
       <div class='ticket-skill'>${esc(t.currentSkill || 'unknown')}</div>
     </div>
     <div class='ticket-main-meta'>
@@ -416,7 +416,7 @@ function render() {
   document.getElementById('pipeline-text').textContent = state.pipeline.length ? state.pipeline.join(' → ') : '-';
   document.getElementById('pipeline-preview').textContent = editPipeline.length ? editPipeline.join(' → ') : '-';
   document.getElementById('event-stats').textContent = `lifecycle:${eventStats.lifecycle} | step:${eventStats.step} | redline:${eventStats.redline} | artifact:${eventStats.artifact}`;
-  const slots = (state.workerPool?.slots || []).map(s => `#${s.slot}:${s.jiraTicket || 'idle'}`).join(' | ');
+  const slots = (state.workerPool?.slots || []).map(s => `#${s.slot}:${s.title || 'idle'}`).join(' | ');
   document.getElementById('worker-stats').textContent = `workers ${slots || '-'} | queue:${state.workerPool?.queueDepth ?? 0} | ETA:${state.workerPool?.roughEtaMin ?? 0}m`;
   document.getElementById('theme-mode').value = themeMode;
   document.getElementById('density-mode').value = densityMode;
@@ -530,7 +530,7 @@ async function saveConfig() {
 
 async function refresh() { const res = await fetch('/api/tickets'); state = await res.json(); pendingWipLimits = { ...(state.wipLimits || pendingWipLimits || {}) }; render(); }
 async function scanSkills() { const p = document.getElementById('project-path').value.trim(); const res = await fetch(`/api/skills?projectPath=${encodeURIComponent(p)}`); const data = await res.json(); availableSkills = data.skills || []; render(); }
-async function addTicket() { const jiraTicket = document.getElementById('ticket-input').value.trim(); if (!jiraTicket) return; await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jiraTicket }) }); document.getElementById('ticket-input').value = ''; refresh(); }
+async function addTicket() { const title = document.getElementById('ticket-input').value.trim(); if (!title) return; await fetch('/api/tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title }) }); document.getElementById('ticket-input').value = ''; refresh(); }
 async function resolveAction(id, actionId) {
   const res = await fetch(`/api/tickets/${id}/actions/resolve`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ actionId })});
   const data = await res.json().catch(() => ({}));

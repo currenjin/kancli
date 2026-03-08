@@ -41,7 +41,7 @@ function resolveProjectPath(inputPath) {
 function summarizeTicket(t) {
   const skill = t.currentSkill || "-";
   const pending = t.pendingAction ? `pending=${t.pendingAction.type}` : "pending=-";
-  return `#${t.id} ${t.jiraTicket} | ${t.status} | skill=${skill} | step=${t.currentStep ?? "-"} | ${pending}`;
+  return `#${t.id} ${t.title} | ${t.status} | skill=${skill} | step=${t.currentStep ?? "-"} | ${pending}`;
 }
 
 function extractQuestionFromLog(log) {
@@ -198,7 +198,7 @@ async function commandBoard() {
     } else if (mode !== "board" && activeTicket) {
       const action = activeTicket.pendingAction || {};
       process.stdout.write("\n--- answer panel ---\n");
-      process.stdout.write(`#${activeTicket.id} ${activeTicket.jiraTicket}\n`);
+      process.stdout.write(`#${activeTicket.id} ${activeTicket.title}\n`);
       process.stdout.write(`${resolvePrompt(activeTicket)}\n`);
       if ((action.options || []).length) {
         process.stdout.write("\nselect option (↑/↓ or number, Enter submit, Esc cancel):\n");
@@ -216,7 +216,7 @@ async function commandBoard() {
       const all = getAll();
       if (all.length) {
         const t = all[Math.min(ticketCursor, all.length - 1)];
-        process.stdout.write(`\n#${t.id} ${t.jiraTicket} (${t.status}) | n: next  s: stop  d: delete  Enter: answer\n`);
+        process.stdout.write(`\n#${t.id} ${t.title} (${t.status}) | n: next  s: stop  d: delete  Enter: answer\n`);
       }
     }
 
@@ -795,9 +795,9 @@ async function commandRestart() {
 }
 
 async function commandAdd(argv) {
-  const jiraTicket = argv[0];
-  if (!jiraTicket) throw new Error("usage: kancli add <ticket>");
-  const created = await client.add(jiraTicket);
+  const title = argv[0];
+  if (!title) throw new Error("usage: kancli add <ticket>");
+  const created = await client.add(title);
   console.log(`added ${summarizeTicket(created)}`);
 }
 
@@ -888,7 +888,7 @@ async function commandPending() {
       } catch {}
     }
 
-    console.log(`#${t.id} ${t.jiraTicket}`);
+    console.log(`#${t.id} ${t.title}`);
     console.log(`  skill: ${t.currentSkill || '-'} | status: ${t.status}`);
     const paType = pa.type || 'selection';
     const noOptionsSelection = paType === 'selection' && !opts.length;
