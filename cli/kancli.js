@@ -477,6 +477,28 @@ async function commandBoard() {
     }
   };
 
+  const clearDone = async () => {
+    const doneTickets = (board.tickets || []).filter((t) => t.isDone || t.status === "done");
+    if (!doneTickets.length) {
+      message = "no done tickets to clear.";
+      draw();
+      return;
+    }
+    isSubmitting = true;
+    message = `clearing ${doneTickets.length} done ticket(s)...`;
+    draw();
+    let cleared = 0;
+    for (const t of doneTickets) {
+      try {
+        await client.remove(t.id);
+        cleared++;
+      } catch {}
+    }
+    isSubmitting = false;
+    message = `cleared ${cleared} done ticket(s).`;
+    await refresh();
+  };
+
   const cleanup = () => {
     if (refreshTimer) clearInterval(refreshTimer);
     if (closeSse) closeSse();
@@ -546,6 +568,12 @@ async function commandBoard() {
         focus = focus === "pending" ? "tickets" : "pending";
         message = "";
         draw();
+        return;
+      }
+
+      // "c": clear done tickets
+      if (str === "c") {
+        await clearDone();
         return;
       }
 
