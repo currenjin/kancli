@@ -68,9 +68,10 @@ function inferCommandOptionsFromText(text) {
   if (!source.trim()) return [];
   const out = [];
   const add = (id) => {
-    const v = String(id || "").trim().toLowerCase();
-    if (!/^[a-z0-9_-]{2,40}$/.test(v)) return;
-    if (!out.find((o) => o.id === v)) out.push({ id: v, label: v });
+    const v = String(id || "").trim();
+    if (!v || v.length < 1 || v.length > 40) return;
+    const key = v.toLowerCase();
+    if (!out.find((o) => o.id === key)) out.push({ id: key, label: v });
   };
 
   for (const m of source.matchAll(/`([^`\n]{1,40})`/g)) add(m[1]);
@@ -156,13 +157,15 @@ async function commandBoard() {
 
   const QUESTION_SOURCES = new Set(["tool_use", "runtime_fallback"]);
   const ACTIVE_STATUSES = new Set(["running", "queued"]);
+  const INACTIVE_STATUSES = new Set(["halted", "blocked", "awaiting_input"]);
   const getPending = () => {
     const all = (board.tickets || []).filter((t) => t.pendingAction);
     const questions = all.filter((t) => QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
     const actions = all.filter((t) => !QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
     const reviews = (board.tickets || []).filter((t) => !t.pendingAction && t.status === "review");
     const active = (board.tickets || []).filter((t) => !t.pendingAction && ACTIVE_STATUSES.has(t.status));
-    return [...questions, ...actions, ...reviews, ...active];
+    const inactive = (board.tickets || []).filter((t) => !t.pendingAction && INACTIVE_STATUSES.has(t.status));
+    return [...questions, ...actions, ...reviews, ...active, ...inactive];
   };
   const getAll = () => getAllTickets(board);
 
@@ -279,6 +282,12 @@ async function commandBoard() {
       const idx = all.findIndex((x) => String(x.id) === String(target.id));
       if (idx >= 0) ticketCursor = idx;
       await ticketAction("next");
+      return;
+    }
+    // Inactive tickets (halted/blocked/awaiting_input) without pendingAction — show status hint
+    if (!target.pendingAction && INACTIVE_STATUSES.has(target.status)) {
+      message = `#${target.id} is ${target.status}. R: retry  n: next  d: delete`;
+      draw();
       return;
     }
     activeTicket = target;
@@ -419,6 +428,9 @@ async function commandBoard() {
       } else if (action === "delete") {
         await client.remove(t.id);
         message = `#${t.id} deleted.`;
+      } else if (action === "retry") {
+        await client.answer(t.id, { actionId: "retry" });
+        message = `#${t.id} retrying.`;
       }
       resetPromptState();
       await refresh();
@@ -597,13 +609,13 @@ async function commandBoard() {
           if (t) await openLog(t.id);
           return;
         }
-        else if (str === "n" || str === "s" || str === "d") {
+        else if (str === "n" || str === "s" || str === "d" || str === "R") {
           if (pending.length) {
             const t = pending[Math.min(pendingCursor, pending.length - 1)];
             const all = getAll();
             const allIdx = all.findIndex((x) => String(x.id) === String(t.id));
             if (allIdx >= 0) ticketCursor = allIdx;
-            const action = str === "n" ? "next" : str === "s" ? "stop" : "delete";
+            const action = str === "n" ? "next" : str === "s" ? "stop" : str === "d" ? "delete" : "retry";
             await ticketAction(action);
             return;
           }
@@ -624,6 +636,7 @@ async function commandBoard() {
         else if (str === "n") { await ticketAction("next"); return; }
         else if (str === "s") { await ticketAction("stop"); return; }
         else if (str === "d") { await ticketAction("delete"); return; }
+        else if (str === "R") { await ticketAction("retry"); return; }
         else if (str === "l") {
           const t = getSelectedTicket();
           if (t) await openLog(t.id);
