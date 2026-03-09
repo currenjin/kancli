@@ -233,9 +233,16 @@ function removeWorktree(worktreePath) {
 }
 
 function normalizePendingActionOption(option, index) {
-  if (!option || typeof option !== "object") return null;
+  if (!option) return null;
+  if (typeof option === "string") {
+    const v = option.trim();
+    return v ? { id: v, label: v, payload: {} } : null;
+  }
+  if (typeof option !== "object") return null;
   const id = typeof option.id === "string" && option.id.trim() ? option.id.trim() : `option_${index + 1}`;
-  const label = typeof option.label === "string" && option.label.trim() ? option.label.trim() : id;
+  const label = typeof option.label === "string" && option.label.trim() ? option.label.trim()
+    : typeof option.description === "string" && option.description.trim() ? option.description.trim()
+    : id;
   return { id, label, payload: option.payload && typeof option.payload === "object" ? option.payload : {} };
 }
 
@@ -650,7 +657,7 @@ function extractOptionsFromPrompt(prompt) {
 
   // e.g. "- go - ..." or "1. go - ..."
   if (!out.length) {
-    const plainOption = /(?:^|\n)\s*(?:[-*]|\d+[.)])\s*([a-zA-Z0-9_-]{2,40})\s*(?:[-:—]|$)/g;
+    const plainOption = /(?:^|\n)\s*(?:[-*]|\d+[.)])\s*(\S[^-:—\n]*\S|\S)[ \t]*(?:[-:—]|(?=\n)|$)/g;
     while ((m = plainOption.exec(prompt)) !== null) {
       const id = String(m[1] || "").trim();
       if (!id) continue;
@@ -678,7 +685,7 @@ function resolveToolUsePendingAction(block) {
         if (typeof o === "string") return { id: o, label: o };
         if (o && typeof o === "object") {
           const id = String(o.id || o.value || o.key || o.name || `option_${idx + 1}`);
-          return { id, label: String(o.label || o.title || o.name || id), payload: o.payload || {} };
+          return { id, label: String(o.label || o.title || o.description || o.name || id), payload: o.payload || {} };
         }
         return null;
       }).filter(Boolean)
