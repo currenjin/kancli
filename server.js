@@ -729,6 +729,26 @@ function processContentBlocks(ticket, blocks) {
       if (artifact) addArtifact(ticket, artifact);
     }
   }
+  // Enrich generic pending actions with options extracted from accumulated log
+  if (ticket.pendingAction && ticket.pendingAction.metadata?.source === "tool_use") {
+    const pa = ticket.pendingAction;
+    const isGeneric = !pa.options?.length || pa.prompt === "응답이 필요합니다.";
+    if (isGeneric) {
+      const logOptions = extractOptionsFromPrompt(ticket.log || "");
+      if (logOptions.length) {
+        pa.options = logOptions;
+        pa.type = "selection";
+      }
+      if (pa.prompt === "응답이 필요합니다.") {
+        const lines = (ticket.log || "").split("\n").filter(l => l.trim());
+        const askIdx = lines.findLastIndex(l => /AskUserQuestion/i.test(l));
+        if (askIdx >= 0) {
+          const slice = lines.slice(askIdx + 1, askIdx + 7).join("\n").trim();
+          if (slice) pa.prompt = slice;
+        }
+      }
+    }
+  }
 }
 
 function parseStreamEvent(ticket, ev) {
@@ -1390,6 +1410,7 @@ module.exports = {
   createUnknownInteractionFallbackPendingAction,
   runtimeIndicatesUserQuestion,
   inferSelectionFromTextPrompt,
+  extractOptionsFromPrompt,
   isPendingActionExpired,
   validateActionResolutionPayload,
   expireStalePendingAction,

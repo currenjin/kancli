@@ -306,6 +306,7 @@ async function commandBoard() {
           ...activeTicket,
           pendingAction: {
             ...pa,
+            type: inferredOptions.length ? "selection" : pa.type,
             prompt: isGenericPrompt ? (inferredPrompt || pa.prompt) : pa.prompt,
             options: inferredOptions.length ? inferredOptions : (pa.options || []),
           },
@@ -313,9 +314,8 @@ async function commandBoard() {
       } catch {}
     }
 
-    const textTypes = ["text", "input", "free_text"];
     const effective = activeTicket.pendingAction || pa;
-    mode = ((effective.options || []).length && !textTypes.includes(effective.type)) ? "selection" : "text";
+    mode = (effective.options || []).length ? "selection" : "text";
     message = "";
     draw();
   };
@@ -353,6 +353,7 @@ async function commandBoard() {
           ...activeTicket,
           pendingAction: {
             ...pa,
+            type: inferredOptions.length ? "selection" : pa.type,
             prompt: isGenericPrompt ? (inferredPrompt || pa.prompt) : pa.prompt,
             options: inferredOptions.length ? inferredOptions : (pa.options || []),
           },
@@ -360,9 +361,8 @@ async function commandBoard() {
       } catch {}
     }
 
-    const textTypes = ["text", "input", "free_text"];
     const effective = activeTicket.pendingAction || pa;
-    mode = ((effective.options || []).length && !textTypes.includes(effective.type)) ? "selection" : "text";
+    mode = (effective.options || []).length ? "selection" : "text";
     message = "";
     draw();
   };
