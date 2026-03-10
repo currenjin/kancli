@@ -162,13 +162,8 @@ function loadDb() {
     if (["review", "awaiting_input", "waiting"].includes(tickets[t.id].status)) {
       tickets[t.id].status = TASK_STATUS.WAITING;
       if (!tickets[t.id].pendingAction) {
-        const baseOptions = [
-          { id: "continue", label: "다음 단계 진행" },
-          { id: "retry", label: "재시도" },
-          { id: "stop", label: "중단" },
-        ];
         tickets[t.id].pendingAction = createPendingAction(
-          "hybrid", "스텝이 완료되었습니다. 다음 액션을 선택하세요.", baseOptions,
+          "hybrid", "", [],
           { reason: "migrated_from_legacy", source: "step_exit", allowText: true }
         );
       }
@@ -660,12 +655,12 @@ function extractOptionsFromPrompt(prompt) {
   if (typeof prompt !== "string" || !prompt.trim()) return [];
   const out = [];
 
-  // e.g. "- **go** - ..." or "1. **go** - ..."
-  const boldOption = /(?:^|\n)\s*(?:[-*]|\d+[.)])?\s*\*\*([^*\n]+)\*\*/g;
+  // e.g. "- **go** - ..." or "1. **go** - ..." or inline "**go**, **refactor**"
+  const boldOption = /\*\*([^*\n]+)\*\*/g;
   let m;
   while ((m = boldOption.exec(prompt)) !== null) {
     const id = String(m[1] || "").trim();
-    if (!id) continue;
+    if (!id || id.length > 30 || /\s{2,}/.test(id)) continue; // skip long/sentence-like bold
     if (!out.find((o) => o.id === id)) out.push({ id, label: id });
   }
 
@@ -741,29 +736,6 @@ function processContentBlocks(ticket, blocks) {
     } else if (["artifact", "output_file", "file"].includes(b.type)) {
       const artifact = resolveEventArtifact({ event: b });
       if (artifact) addArtifact(ticket, artifact);
-    }
-  }
-  // Enrich generic pending actions with options extracted from accumulated log
-  if (ticket.pendingAction && ticket.pendingAction.metadata?.source === "tool_use") {
-    const pa = ticket.pendingAction;
-    const isGeneric = !pa.options?.length || pa.prompt === "응답이 필요합니다.";
-    if (isGeneric) {
-      const fullLog = ticket.log || "";
-      const lastAskIdx = fullLog.lastIndexOf("[AskUserQuestion]");
-      const logTail = lastAskIdx >= 0 ? fullLog.slice(lastAskIdx) : fullLog.slice(-500);
-      const logOptions = extractOptionsFromPrompt(logTail);
-      if (logOptions.length) {
-        pa.options = logOptions;
-        pa.type = "selection";
-      }
-      if (pa.prompt === "응답이 필요합니다.") {
-        const lines = (ticket.log || "").split("\n").filter(l => l.trim());
-        const askIdx = lines.findLastIndex(l => /AskUserQuestion/i.test(l));
-        if (askIdx >= 0) {
-          const slice = lines.slice(askIdx + 1, askIdx + 7).join("\n").trim();
-          if (slice) pa.prompt = slice;
-        }
-      }
     }
   }
 }
@@ -897,22 +869,8 @@ function startStep(id, options = {}) {
           { reason: "manual_approval_required", source: "approval_gate", step: ticket.currentStep }
         ), "approval_gate");
       } else {
-        // Only look at the last part of the log for options (after last AskUserQuestion or last 500 chars)
-        const fullLog = ticket.log || "";
-        const lastAskIdx = fullLog.lastIndexOf("[AskUserQuestion]");
-        const logTail = lastAskIdx >= 0 ? fullLog.slice(lastAskIdx) : fullLog.slice(-500);
-        const claudeOptions = extractOptionsFromPrompt(logTail);
-        const baseOptions = [
-          { id: "continue", label: "다음 단계 진행" },
-          { id: "retry", label: "재시도" },
-          { id: "stop", label: "중단" },
-        ];
-        const options = [...claudeOptions, ...baseOptions];
-        const prompt = claudeOptions.length
-          ? (ticket.log || "").split("\n").filter(Boolean).pop() || "다음 액션을 선택하세요."
-          : "스텝이 완료되었습니다. 다음 액션을 선택하세요.";
         setPendingAction(ticket, createPendingAction(
-          "hybrid", prompt, options,
+          "hybrid", "", [],
           { reason: "step_completed", source: "step_exit", allowText: true }
         ), "step_exit");
       }
@@ -1150,6 +1108,20 @@ function sanitizeTicket(t, pipeline = config.pipeline || []) {
   const ageMs = Date.now() - (rest.updatedAt || rest.createdAt || Date.now());
   const isStale = ageMs > 30 * 60 * 1000;
   const escalation = rest.pendingAction?.metadata?.escalation || null;
+  // Lazy enrich: derive prompt and options from log at read time
+  if (rest.pendingAction && rest.log) {
+    const lines = rest.log.split("\n").filter(l => l.trim() && !/^> \[/.test(l.trim()) && !/^--- 완료/.test(l.trim()));
+    const lastLines = lines.slice(-3).map(l => l.trim()).join("\n");
+    if (lastLines) rest.pendingAction.prompt = lastLines;
+    if (!rest.pendingAction.options || !rest.pendingAction.options.length) {
+      const fullLog = rest.log;
+      const lastAskIdx = fullLog.lastIndexOf("[AskUserQuestion]");
+      const logTail = lastAskIdx >= 0 ? fullLog.slice(lastAskIdx) : fullLog.slice(-500);
+      const logOptions = extractOptionsFromPrompt(logTail);
+      if (logOptions.length) rest.pendingAction.options = logOptions;
+    }
+  }
+
   return {
     ...rest,
     currentSkill,
