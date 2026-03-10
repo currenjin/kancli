@@ -142,7 +142,8 @@ async function commandBoard() {
   let pendingCursor = 0;
   let ticketCursor = 0;
   let focus = "pending"; // "pending" | "tickets"
-  let mode = "board"; // board | selection | text | add | log
+  let mode = "board"; // board | selection | text | add | log | confirm_delete
+  let deleteTarget = null;
   let logContent = "";
   let logTicketId = null;
   let logScroll = 0;
@@ -155,17 +156,13 @@ async function commandBoard() {
   let refreshTimer = null;
   let closeSse = null;
 
-  const QUESTION_SOURCES = new Set(["tool_use", "runtime_fallback"]);
   const ACTIVE_STATUSES = new Set(["running", "queued"]);
-  const INACTIVE_STATUSES = new Set(["halted", "blocked", "awaiting_input"]);
+  const INACTIVE_STATUSES = new Set(["halted", "blocked"]);
   const getPending = () => {
-    const all = (board.tickets || []).filter((t) => t.pendingAction);
-    const questions = all.filter((t) => QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
-    const actions = all.filter((t) => !QUESTION_SOURCES.has(t.pendingAction?.metadata?.source || ""));
-    const reviews = (board.tickets || []).filter((t) => !t.pendingAction && t.status === "review");
+    const waiting = (board.tickets || []).filter((t) => t.pendingAction);
     const active = (board.tickets || []).filter((t) => !t.pendingAction && ACTIVE_STATUSES.has(t.status));
     const inactive = (board.tickets || []).filter((t) => !t.pendingAction && INACTIVE_STATUSES.has(t.status));
-    return [...questions, ...actions, ...reviews, ...active, ...inactive];
+    return [...waiting, ...active, ...inactive];
   };
   const getAll = () => getAllTickets(board);
 
@@ -194,7 +191,10 @@ async function commandBoard() {
       process.stdout.write(`\n\x1b[2m\u2191/\u2193 scroll  Esc back  r reload\x1b[0m\n`);
       return;
     }
-    if (mode === "add") {
+    if (mode === "confirm_delete" && deleteTarget) {
+      process.stdout.write(`\n--- delete confirmation ---\n`);
+      process.stdout.write(`#${deleteTarget.id} ${deleteTarget.title} 를 삭제할까요? (y/n)\n`);
+    } else if (mode === "add") {
       process.stdout.write("\n--- add ticket ---\n");
       process.stdout.write("ticket id (Enter submit, Esc cancel):\n");
       process.stdout.write(`> ${inputBuffer}\n`);
@@ -204,11 +204,17 @@ async function commandBoard() {
       process.stdout.write(`#${activeTicket.id} ${activeTicket.title}\n`);
       process.stdout.write(`${resolvePrompt(activeTicket)}\n`);
       if ((action.options || []).length) {
-        process.stdout.write("\nselect option (↑/↓ or number, Enter submit, Esc cancel):\n");
-        (action.options || []).forEach((opt, idx) => {
-          const mark = idx === selectedOption ? ">" : " ";
-          process.stdout.write(` ${mark} ${idx + 1}. ${toHumanActionLabel(opt, idx)}\n`);
-        });
+        if (mode === "text") {
+          process.stdout.write("\ntext input (Enter submit, Esc cancel, ↑ back to options):\n");
+          process.stdout.write(`> ${inputBuffer}\n`);
+        } else {
+          process.stdout.write("\nselect option (↑/↓ or number, Enter submit, Esc cancel):\n");
+          (action.options || []).forEach((opt, idx) => {
+            const mark = idx === selectedOption ? ">" : " ";
+            process.stdout.write(` ${mark} ${idx + 1}. ${toHumanActionLabel(opt, idx)}\n`);
+          });
+          process.stdout.write(`\n\x1b[2m또는 메시지 입력 시작...\x1b[0m\n`);
+        }
       } else {
         process.stdout.write("\ntext input (Enter submit, Esc cancel):\n");
         process.stdout.write(`> ${inputBuffer}\n`);
@@ -276,15 +282,7 @@ async function commandBoard() {
       return;
     }
     const target = pending[Math.min(pendingCursor, pending.length - 1)];
-    // Review tickets have no pending action — Enter triggers next directly
-    if (!target.pendingAction && target.status === "review") {
-      const all = getAll();
-      const idx = all.findIndex((x) => String(x.id) === String(target.id));
-      if (idx >= 0) ticketCursor = idx;
-      await ticketAction("next");
-      return;
-    }
-    // Inactive tickets (halted/blocked/awaiting_input) without pendingAction — show status hint
+    // Inactive tickets (halted/blocked) without pendingAction — show status hint
     if (!target.pendingAction && INACTIVE_STATUSES.has(target.status)) {
       message = `#${target.id} is ${target.status}. R: retry  n: next  d: delete`;
       draw();
@@ -322,13 +320,6 @@ async function commandBoard() {
 
   const openPendingPanelForTicket = async (ticket) => {
     if (!ticket.pendingAction) {
-      if (ticket.status === "review") {
-        const all = getAll();
-        const idx = all.findIndex((x) => String(x.id) === String(ticket.id));
-        if (idx >= 0) ticketCursor = idx;
-        await ticketAction("next");
-        return;
-      }
       message = `#${ticket.id} has no pending action.`;
       draw();
       return;
@@ -371,14 +362,13 @@ async function commandBoard() {
     if (!activeTicket || isSubmitting) return;
     const action = activeTicket.pendingAction || {};
     const payload = { metadata: { source: "kancli-board" } };
-    if ((action.options || []).length) {
+    if (mode === "selection" && (action.options || []).length) {
       const chosen = action.options[selectedOption];
       if (!chosen?.id) {
         message = "invalid selection.";
         draw();
         return;
       }
-      payload.actionId = chosen.id;
       payload.input = chosen.id;
     } else {
       if (!inputBuffer.trim()) {
@@ -387,9 +377,6 @@ async function commandBoard() {
         return;
       }
       payload.input = inputBuffer;
-      if (action.type === "selection") {
-        payload.actionId = inputBuffer.trim();
-      }
     }
 
     isSubmitting = true;
@@ -426,10 +413,14 @@ async function commandBoard() {
         await client.stop(t.id);
         message = `#${t.id} stopped.`;
       } else if (action === "delete") {
-        await client.remove(t.id);
-        message = `#${t.id} deleted.`;
+        isSubmitting = false;
+        deleteTarget = t;
+        mode = "confirm_delete";
+        message = `#${t.id} ${t.title} 를 삭제할까요? (y/n)`;
+        draw();
+        return;
       } else if (action === "retry") {
-        await client.answer(t.id, { actionId: "retry" });
+        await client.answer(t.id, { input: "retry" });
         message = `#${t.id} retrying.`;
       }
       resetPromptState();
@@ -568,6 +559,32 @@ async function commandBoard() {
       return;
     }
 
+    if (mode === "confirm_delete") {
+      if (str === "y" || str === "Y") {
+        isSubmitting = true;
+        draw();
+        try {
+          await client.remove(deleteTarget.id);
+          message = `#${deleteTarget.id} deleted.`;
+          deleteTarget = null;
+          resetPromptState();
+          await refresh();
+        } catch (err) {
+          message = `delete failed: ${err.message}`;
+          draw();
+        } finally {
+          isSubmitting = false;
+          draw();
+        }
+      } else {
+        message = "삭제 취소.";
+        deleteTarget = null;
+        resetPromptState();
+        draw();
+      }
+      return;
+    }
+
     if (mode === "board") {
       if (key.name === "q") {
         quit = true;
@@ -673,6 +690,10 @@ async function commandBoard() {
       else if (/^[1-9]$/.test(str || "")) {
         const idx = Number(str) - 1;
         if (idx >= 0 && idx < options.length) selectedOption = idx;
+      } else if (!key.ctrl && !key.meta && str && !/^[0-9]$/.test(str)) {
+        // Start typing → switch to text mode
+        mode = "text";
+        inputBuffer = str;
       }
       draw();
       return;
@@ -680,7 +701,16 @@ async function commandBoard() {
 
     if (mode === "text") {
       if (key.name === "return") await submitCurrent();
-      else if (key.name === "backspace") inputBuffer = inputBuffer.slice(0, -1);
+      else if (key.name === "backspace") {
+        inputBuffer = inputBuffer.slice(0, -1);
+        // Empty buffer + backspace → back to selection if options exist
+        if (!inputBuffer && (activeTicket?.pendingAction?.options || []).length) {
+          mode = "selection";
+        }
+      }
+      else if (key.name === "up" && !inputBuffer && (activeTicket?.pendingAction?.options || []).length) {
+        mode = "selection";
+      }
       else if (!key.ctrl && !key.meta && str) inputBuffer += str;
       draw();
     }
@@ -843,12 +873,9 @@ async function commandAnswer(argv) {
 
   let payload;
   if (option) {
-    payload = { actionId: option.id, metadata: { source: "kancli" } };
-  } else if (action.type === "selection") {
-    // selection type but options may be missing from runtime; treat user text as direct actionId fallback
-    payload = { actionId: answerText.trim(), input: answerText, metadata: { source: "kancli" } };
+    payload = { input: option.id, metadata: { source: "kancli" } };
   } else {
-    payload = { input: answerText, metadata: { source: "kancli" } };
+    payload = { input: answerText.trim(), metadata: { source: "kancli" } };
   }
 
   const updated = await client.answer(ticketId, payload);
@@ -884,7 +911,7 @@ async function commandPending() {
   const status = await client.status();
   const pending = (status.tickets || []).filter((t) => t.pendingAction);
   if (!pending.length) {
-    console.log("no pending questions/actions");
+    console.log("no waiting tickets");
     return;
   }
 

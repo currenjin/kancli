@@ -9,7 +9,7 @@ test('manual approval action payload is accepted', () => {
     { id: 'reject', label: '반려' },
   ]);
 
-  const ok = validateActionResolutionPayload({ actionId: 'approve' }, pending);
+  const ok = validateActionResolutionPayload({ input: 'approve' }, pending);
   assert.equal(ok.actionId, 'approve');
 });
 

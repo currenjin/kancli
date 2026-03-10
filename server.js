@@ -16,8 +16,7 @@ const PENDING_ACTION_TTL_MS = Number(process.env.KANCLI_PENDING_ACTION_TTL_MS ||
 const TASK_STATUS = {
   QUEUED: "queued",
   RUNNING: "running",
-  AWAITING_INPUT: "awaiting_input",
-  REVIEW: "review",
+  WAITING: "waiting",
   BLOCKED: "blocked",
   DONE: "done",
   HALTED: "halted",
@@ -159,6 +158,21 @@ function loadDb() {
       );
     }
     if (tickets[t.id].status === TASK_STATUS.RUNNING) tickets[t.id].status = TASK_STATUS.BLOCKED;
+    // Ensure WAITING tickets always have a pendingAction
+    if (["review", "awaiting_input", "waiting"].includes(tickets[t.id].status)) {
+      tickets[t.id].status = TASK_STATUS.WAITING;
+      if (!tickets[t.id].pendingAction) {
+        const baseOptions = [
+          { id: "continue", label: "다음 단계 진행" },
+          { id: "retry", label: "재시도" },
+          { id: "stop", label: "중단" },
+        ];
+        tickets[t.id].pendingAction = createPendingAction(
+          "hybrid", "스텝이 완료되었습니다. 다음 액션을 선택하세요.", baseOptions,
+          { reason: "migrated_from_legacy", source: "step_exit", allowText: true }
+        );
+      }
+    }
   }
 
   const maxTicketId = Math.max(0, ...Object.keys(tickets).map((id) => Number(id) || 0));
@@ -345,7 +359,7 @@ function applyPendingActionPolicy(ticket, origin = "runtime") {
   if (!ticket?.pendingAction) return;
   const interactiveAllowed = getInteractionMode() === "interactive" || isLegacyPendingAction(ticket.pendingAction) || origin === "approval_gate";
   if (interactiveAllowed) {
-    ticket.status = TASK_STATUS.AWAITING_INPUT;
+    ticket.status = TASK_STATUS.WAITING;
     return;
   }
   const blockedReason = "interaction_mode_forbid";
@@ -443,7 +457,7 @@ function updateSummary(ticket) {
 
   const escalation = ticket.pendingAction?.metadata?.escalation;
   const nextAction = ticket.pendingAction?.prompt
-    || (ticket.status === TASK_STATUS.REVIEW ? "review and advance" : "-");
+    || "-";
   const recommendation = escalation
     ? (escalation.retryRemaining > 0 ? `retry 가능 (${escalation.retryRemaining}회)` : "fallback 또는 halt 권장")
     : nextAction;
@@ -734,7 +748,10 @@ function processContentBlocks(ticket, blocks) {
     const pa = ticket.pendingAction;
     const isGeneric = !pa.options?.length || pa.prompt === "응답이 필요합니다.";
     if (isGeneric) {
-      const logOptions = extractOptionsFromPrompt(ticket.log || "");
+      const fullLog = ticket.log || "";
+      const lastAskIdx = fullLog.lastIndexOf("[AskUserQuestion]");
+      const logTail = lastAskIdx >= 0 ? fullLog.slice(lastAskIdx) : fullLog.slice(-500);
+      const logOptions = extractOptionsFromPrompt(logTail);
       if (logOptions.length) {
         pa.options = logOptions;
         pa.type = "selection";
@@ -880,7 +897,24 @@ function startStep(id, options = {}) {
           { reason: "manual_approval_required", source: "approval_gate", step: ticket.currentStep }
         ), "approval_gate");
       } else {
-        ticket.status = TASK_STATUS.REVIEW;
+        // Only look at the last part of the log for options (after last AskUserQuestion or last 500 chars)
+        const fullLog = ticket.log || "";
+        const lastAskIdx = fullLog.lastIndexOf("[AskUserQuestion]");
+        const logTail = lastAskIdx >= 0 ? fullLog.slice(lastAskIdx) : fullLog.slice(-500);
+        const claudeOptions = extractOptionsFromPrompt(logTail);
+        const baseOptions = [
+          { id: "continue", label: "다음 단계 진행" },
+          { id: "retry", label: "재시도" },
+          { id: "stop", label: "중단" },
+        ];
+        const options = [...claudeOptions, ...baseOptions];
+        const prompt = claudeOptions.length
+          ? (ticket.log || "").split("\n").filter(Boolean).pop() || "다음 액션을 선택하세요."
+          : "스텝이 완료되었습니다. 다음 액션을 선택하세요.";
+        setPendingAction(ticket, createPendingAction(
+          "hybrid", prompt, options,
+          { reason: "step_completed", source: "step_exit", allowText: true }
+        ), "step_exit");
       }
     } else {
       applyPendingActionPolicy(ticket, "runtime");
@@ -958,7 +992,7 @@ function addTicket(title) {
 function moveToNextStep(id) {
   const t = tickets[id];
   if (!t) return { error: "not found", code: 404 };
-  if (![TASK_STATUS.REVIEW, TASK_STATUS.AWAITING_INPUT, TASK_STATUS.BLOCKED, TASK_STATUS.HALTED].includes(t.status)) {
+  if (![TASK_STATUS.WAITING, TASK_STATUS.WAITING, TASK_STATUS.BLOCKED, TASK_STATUS.HALTED].includes(t.status)) {
     return { error: "다음 단계로 진행할 수 없는 상태입니다.", code: 400 };
   }
 
@@ -996,34 +1030,16 @@ function validateActionResolutionPayload(payload, pending) {
   if (!payload || typeof payload !== "object") return { error: "잘못된 요청 본문입니다." };
   if (isPendingActionExpired(pending)) return { error: "요청된 액션이 만료되었습니다.", stale: true };
 
-  const pendingType = typeof pending?.type === "string" ? pending.type : "selection";
-  const builtin = ["retry", "halt", "advance", "approve", "reject", "fallback"];
-  const input = typeof payload.input === "string" ? payload.input : "";
-
   if (payload.metadata !== undefined && (typeof payload.metadata !== "object" || Array.isArray(payload.metadata))) {
     return { error: "metadata는 객체여야 합니다." };
   }
 
-  let actionId = typeof payload.actionId === "string" ? payload.actionId.trim() : "";
-  if (!actionId) {
-    if (["text", "input", "free_text"].includes(pendingType)) {
-      actionId = pending.options?.[0]?.id || "submit_text";
-    } else if (pendingType === "confirm") {
-      actionId = payload.confirm === false ? "reject" : (pending.options?.[0]?.id || "approve");
-    } else {
-      return { error: "actionId는 필수 문자열입니다." };
-    }
-  }
+  const input = typeof payload.input === "string" ? payload.input.trim() : "";
+  if (!input) return { error: "input은 필수입니다." };
 
-  const selected = pending.options?.find((o) => o.id === actionId) || null;
-  const hasServerOptions = Array.isArray(pending.options) && pending.options.length > 0;
-  if (!selected && !builtin.includes(actionId) && pendingType === "selection" && hasServerOptions) {
-    return { error: `알 수 없는 actionId: ${actionId}` };
-  }
-
-  if (["text", "input", "free_text"].includes(pendingType) && !input.trim()) {
-    return { error: "text 입력이 필요합니다." };
-  }
+  const builtin = ["retry", "halt", "advance", "approve", "reject", "fallback"];
+  const selected = (pending.options || []).find((o) => o.id === input) || null;
+  const actionId = selected ? selected.id : (builtin.includes(input) ? input : "submit_text");
 
   return { actionId, selected, metadata: payload.metadata || {}, input };
 }
@@ -1287,7 +1303,7 @@ const server = http.createServer((req, res) => {
       const t = tickets[resolveActionMatch[1]];
       if (!t) return json(res, { error: "not found" }, 404);
       if (expireStalePendingAction(t)) emitTicket(t);
-      if (![TASK_STATUS.AWAITING_INPUT, TASK_STATUS.BLOCKED, TASK_STATUS.REVIEW, TASK_STATUS.HALTED].includes(t.status)) {
+      if (![TASK_STATUS.WAITING, TASK_STATUS.BLOCKED, TASK_STATUS.WAITING, TASK_STATUS.HALTED].includes(t.status)) {
         return json(res, { error: "액션을 처리할 수 있는 상태가 아닙니다." }, 400);
       }
       let payload;

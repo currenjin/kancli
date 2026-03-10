@@ -19,18 +19,18 @@ test('createPendingAction normalizes shape and injects ttl fields', () => {
   assert.ok(pending.expiresAt > pending.createdAt);
 });
 
-test('validateActionResolutionPayload rejects unknown action and bad metadata', () => {
+test('validateActionResolutionPayload rejects empty input and bad metadata', () => {
   const pending = createPendingAction('selection', 'pick', [{ id: 'approve', label: 'Approve' }], {});
-  const unknown = validateActionResolutionPayload({ actionId: 'nope' }, pending);
-  assert.match(unknown.error, /알 수 없는 actionId/);
+  const empty = validateActionResolutionPayload({ input: '' }, pending);
+  assert.equal(empty.error, 'input은 필수입니다.');
 
-  const badMeta = validateActionResolutionPayload({ actionId: 'approve', metadata: [] }, pending);
+  const badMeta = validateActionResolutionPayload({ input: 'approve', metadata: [] }, pending);
   assert.equal(badMeta.error, 'metadata는 객체여야 합니다.');
 });
 
 test('stale pending action is detected and converted to recovery action', () => {
   const ticket = {
-    status: 'awaiting_input',
+    status: 'waiting',
     pendingAction: {
       ...createPendingAction('selection', 'old action', [{ id: 'approve', label: 'Approve' }], {}),
       expiresAt: Date.now() - 1,
@@ -45,14 +45,18 @@ test('stale pending action is detected and converted to recovery action', () => 
   assert.equal(ticket.pendingAction.options[0].id, 'retry');
 });
 
-test('validateActionResolutionPayload supports text/input response loop', () => {
-  const pending = createPendingAction('text', 'why?', [{ id: 'reply', label: '답변 제출' }], { source: 'runtime' });
+test('validateActionResolutionPayload supports text and option input', () => {
+  const pending = createPendingAction('hybrid', 'why?', [{ id: 'reply', label: '답변 제출' }], { source: 'runtime' });
 
   const ok = validateActionResolutionPayload({ input: 'because test', metadata: { via: 'ui' } }, pending);
   assert.equal(ok.error, undefined);
-  assert.equal(ok.actionId, 'reply');
+  assert.equal(ok.actionId, 'submit_text');
   assert.equal(ok.input, 'because test');
 
-  const bad = validateActionResolutionPayload({ actionId: 'reply', input: '   ' }, pending);
-  assert.equal(bad.error, 'text 입력이 필요합니다.');
+  const optionPick = validateActionResolutionPayload({ input: 'reply' }, pending);
+  assert.equal(optionPick.actionId, 'reply');
+  assert.ok(optionPick.selected);
+
+  const empty = validateActionResolutionPayload({ input: '   ' }, pending);
+  assert.equal(empty.error, 'input은 필수입니다.');
 });
